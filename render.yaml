@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: sports-crawler
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: CRAWL_DELAY_MIN
+        value: "0"
+      - key: CRAWL_DELAY_MAX
+        value: "0"
+      - key: LOG_LEVEL
+        value: "INFO"

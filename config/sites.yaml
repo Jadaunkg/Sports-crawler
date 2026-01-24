@@ -1,0 +1,60 @@
+# Preconfigured sports news sites
+sites:
+  - name: "Goal"
+    domain: "goal.com"
+    sitemap_url: "https://www.goal.com/en-us/sitemap/google-news.xml"
+    crawl_interval_minutes: 15
+    is_active: true
+    site_type: "specific"  # specific = single sport, general = multi-sport
+    sport_focus: "soccer"  # only for specific sites
+    
+  - name: "RealChamps"
+    domain: "therealchamps.com"
+    sitemap_url: "https://therealchamps.com/news-sitemap.xml"
+    crawl_interval_minutes: 15
+    is_active: true
+    site_type: "specific"
+    sport_focus: "soccer"
+
+# Default settings
+defaults:
+  crawl_interval_minutes: 15
+  request_delay_min: 2
+  request_delay_max: 5
+  max_retries: 3
+  backoff_factor: 2
+  days_to_crawl: 3  # Only fetch articles from last N days
+  
+# URL patterns to reject (not articles)
+reject_patterns:
+  - "/category/"
+  - "/tag/"
+  - "/tags/"
+  - "/live-score/"
+  - "/live-scores/"
+  - "/gallery/"
+  - "/galleries/"
+  - "/video/"
+  - "/videos/"
+  - "/author/"
+  - "/search/"
+  - "/page/"
+
+# Sport categories for detection (used for general sites)
+sport_categories:
+  - football
+  - soccer
+  - basketball
+  - cricket
+  - tennis
+  - baseball
+  - hockey
+  - golf
+  - rugby
+  - boxing
+  - mma
+  - f1
+  - motorsport
+  - athletics
+  - swimming
+  - olympics
