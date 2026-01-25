@@ -2,8 +2,9 @@ name: Keep Render Alive
 
 on:
   schedule:
-    # Run every 9 minutes (prevent Render free tier sleep)
-    - cron: '*/9 * * * *'
+    # Run every 10 minutes (prevent Render free tier sleep)
+    # Updated: January 26, 2026 - schedule activated
+    - cron: '*/10 * * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
