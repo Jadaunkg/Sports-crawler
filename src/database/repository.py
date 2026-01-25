@@ -22,6 +22,8 @@ class Site:
     sitemap_url: str = ""
     crawl_interval_minutes: int = 15
     is_active: bool = True
+    site_type: str = "general"  # 'specific' or 'general'
+    sport_focus: Optional[str] = None  # only for specific sites
     created_at: Optional[str] = None
 
 
@@ -108,6 +110,8 @@ class Repository:
             "sitemap_url": site.sitemap_url,
             "crawl_interval_minutes": site.crawl_interval_minutes,
             "is_active": site.is_active,
+            "site_type": site.site_type,
+            "sport_focus": site.sport_focus,
         }
         
         result = self.db.table("sites").upsert(

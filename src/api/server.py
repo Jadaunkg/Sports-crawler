@@ -87,19 +87,26 @@ class CrawlStatus(BaseModel):
     last_run: Optional[str]
 
 
-# Auto-scheduler state
+# Auto-scheduler state - days_to_crawl loaded from config at startup
 scheduler_state = {
     "last_auto_crawl": None,
     "auto_crawl_interval_minutes": 15,
-    "days_to_crawl": 2
+    "days_to_crawl": None  # Will be set from config at startup
 }
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events with auto-scheduler."""
+    global scheduler_state
     setup_logging(level="INFO")
     logger.info("API server starting")
+    
+    # Load days_to_crawl from config
+    config = get_config()
+    scheduler_state["days_to_crawl"] = config.days_to_crawl
+    scheduler_state["auto_crawl_interval_minutes"] = config.default_crawl_interval_minutes
+    logger.info(f"Loaded config: days_to_crawl={scheduler_state['days_to_crawl']}, interval={scheduler_state['auto_crawl_interval_minutes']}min")
     
     # Start background scheduler
     scheduler_task = asyncio.create_task(auto_scheduler_loop())
@@ -199,7 +206,7 @@ async def get_scheduler_status():
 
 @app.get("/api/sites", response_model=List[SiteResponse])
 async def get_sites():
-    """Get all configured sites."""
+    """Get all configured sites from database."""
     repo = get_repository()
     sites = repo.get_all_sites()
     return [
@@ -208,8 +215,8 @@ async def get_sites():
             name=s.name,
             domain=s.domain,
             sitemap_url=s.sitemap_url,
-            site_type=getattr(s, 'site_type', 'specific'),
-            sport_focus=getattr(s, 'sport_focus', None),
+            site_type=s.site_type,
+            sport_focus=s.sport_focus,
             crawl_interval_minutes=s.crawl_interval_minutes,
             is_active=s.is_active
         )
@@ -219,7 +226,7 @@ async def get_sites():
 
 @app.post("/api/sites", response_model=SiteResponse)
 async def add_site(site: SiteCreate):
-    """Add a new site to crawl."""
+    """Add a new site to crawl (saves to database)."""
     repo = get_repository()
     
     # Check if domain already exists
@@ -227,12 +234,18 @@ async def add_site(site: SiteCreate):
     if existing:
         raise HTTPException(status_code=400, detail="Site with this domain already exists")
     
+    # Get default interval from config if not specified
+    config = get_config()
+    crawl_interval = site.crawl_interval_minutes or config.default_crawl_interval_minutes
+    
     new_site = Site(
         name=site.name,
         domain=site.domain,
         sitemap_url=site.sitemap_url,
-        crawl_interval_minutes=site.crawl_interval_minutes,
-        is_active=True
+        crawl_interval_minutes=crawl_interval,
+        is_active=True,
+        site_type=site.site_type,
+        sport_focus=site.sport_focus
     )
     
     saved = repo.upsert_site(new_site)
@@ -242,8 +255,8 @@ async def add_site(site: SiteCreate):
         name=saved.name,
         domain=saved.domain,
         sitemap_url=saved.sitemap_url,
-        site_type=site.site_type,
-        sport_focus=site.sport_focus,
+        site_type=saved.site_type,
+        sport_focus=saved.sport_focus,
         crawl_interval_minutes=saved.crawl_interval_minutes,
         is_active=saved.is_active
     )
@@ -404,9 +417,9 @@ async def run_parallel_crawl(site_ids: Optional[List[str]], days: int):
                 
                 crawl_status["total"] += len(new_urls)
                 
-                # Get site type for categorization decision
-                site_type = getattr(site, 'site_type', 'specific')
-                sport_focus = getattr(site, 'sport_focus', None)
+                # Get site type for categorization decision (now directly from database)
+                site_type = site.site_type or 'general'
+                sport_focus = site.sport_focus
                 
                 # Process articles in parallel batches - high concurrency for speed
                 async with HttpClient(session, use_delays=False) as client:

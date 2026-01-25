@@ -1,6 +1,7 @@
 """
 Configuration loader for the sports news crawler.
-Handles environment variables and YAML site configurations.
+Handles environment variables and YAML defaults configuration.
+Sites are loaded from database (not from YAML).
 """
 
 import os
@@ -17,20 +18,26 @@ load_dotenv()
 @dataclass
 class SiteConfig:
     """Configuration for a single site to crawl."""
-    name: str
-    domain: str
-    sitemap_url: str
+    id: Optional[str] = None
+    name: str = ""
+    domain: str = ""
+    sitemap_url: str = ""
     crawl_interval_minutes: int = 15
     is_active: bool = True
+    site_type: str = "general"
+    sport_focus: Optional[str] = None
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SiteConfig":
         return cls(
+            id=data.get("id"),
             name=data["name"],
             domain=data["domain"],
             sitemap_url=data["sitemap_url"],
             crawl_interval_minutes=data.get("crawl_interval_minutes", 15),
-            is_active=data.get("is_active", True)
+            is_active=data.get("is_active", True),
+            site_type=data.get("site_type", "general"),
+            sport_focus=data.get("sport_focus")
         )
 
 
@@ -42,28 +49,26 @@ class CrawlerConfig:
     supabase_anon_key: str
     supabase_service_key: str
     
-    # Crawl settings
+    # Crawl settings (from defaults in YAML)
     crawl_delay_min: int = 2
     crawl_delay_max: int = 5
     default_crawl_interval_minutes: int = 15
     max_retries: int = 3
     backoff_factor: int = 2
+    days_to_crawl: int = 2  # Only fetch articles from last N days
     
     # Logging
     log_level: str = "INFO"
     
-    # Sites
-    sites: List[SiteConfig] = field(default_factory=list)
-    
-    # Rejection patterns
+    # Rejection patterns (from YAML)
     reject_patterns: List[str] = field(default_factory=list)
     
-    # Sport categories
+    # Sport categories (from YAML)
     sport_categories: List[str] = field(default_factory=list)
     
     @classmethod
     def load(cls, config_path: Optional[str] = None) -> "CrawlerConfig":
-        """Load configuration from environment and YAML file."""
+        """Load configuration from environment and YAML file (defaults only)."""
         # Get environment variables
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_anon_key = os.getenv("SUPABASE_ANON_KEY")
@@ -72,35 +77,36 @@ class CrawlerConfig:
         if not all([supabase_url, supabase_anon_key, supabase_service_key]):
             raise ValueError("Missing required Supabase environment variables")
         
+        # Default values
         crawl_delay_min = int(os.getenv("CRAWL_DELAY_MIN", "2"))
         crawl_delay_max = int(os.getenv("CRAWL_DELAY_MAX", "5"))
         default_interval = int(os.getenv("DEFAULT_CRAWL_INTERVAL_MINUTES", "15"))
         log_level = os.getenv("LOG_LEVEL", "INFO")
         
-        # Load YAML config
+        # Load YAML config for defaults, patterns, and categories only
         if config_path is None:
             config_path = Path(__file__).parent.parent / "config" / "sites.yaml"
         else:
             config_path = Path(config_path)
         
-        sites = []
         reject_patterns = []
         sport_categories = []
         max_retries = 3
         backoff_factor = 2
+        days_to_crawl = 2
         
         if config_path.exists():
             with open(config_path, "r", encoding="utf-8") as f:
                 yaml_config = yaml.safe_load(f)
             
-            # Load sites
-            for site_data in yaml_config.get("sites", []):
-                sites.append(SiteConfig.from_dict(site_data))
-            
-            # Load defaults
+            # Load defaults from YAML
             defaults = yaml_config.get("defaults", {})
+            crawl_delay_min = defaults.get("request_delay_min", crawl_delay_min)
+            crawl_delay_max = defaults.get("request_delay_max", crawl_delay_max)
+            default_interval = defaults.get("crawl_interval_minutes", default_interval)
             max_retries = defaults.get("max_retries", 3)
             backoff_factor = defaults.get("backoff_factor", 2)
+            days_to_crawl = defaults.get("days_to_crawl", 2)
             
             # Load patterns and categories
             reject_patterns = yaml_config.get("reject_patterns", [])
@@ -115,15 +121,11 @@ class CrawlerConfig:
             default_crawl_interval_minutes=default_interval,
             max_retries=max_retries,
             backoff_factor=backoff_factor,
+            days_to_crawl=days_to_crawl,
             log_level=log_level,
-            sites=sites,
             reject_patterns=reject_patterns,
             sport_categories=sport_categories
         )
-    
-    def get_active_sites(self) -> List[SiteConfig]:
-        """Return only active sites."""
-        return [s for s in self.sites if s.is_active]
 
 
 # Global config instance

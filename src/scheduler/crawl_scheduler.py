@@ -11,7 +11,7 @@ import aiohttp
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from src.config import get_config, SiteConfig
+from src.config import get_config
 from src.database.repository import get_repository, Site, Article
 from src.sitemap.tracker import UrlTracker
 from src.crawler.http_client import HttpClient
@@ -54,10 +54,7 @@ class CrawlScheduler:
             timeout=aiohttp.ClientTimeout(total=60)
         )
         
-        # Sync sites from config to database
-        await self._sync_sites()
-        
-        # Schedule jobs for each active site
+        # Get active sites from database
         sites = self.repo.get_active_sites()
         for site in sites:
             self._schedule_site(site)
@@ -82,18 +79,7 @@ class CrawlScheduler:
         self._running = False
         logger.info("Scheduler stopped")
     
-    async def _sync_sites(self):
-        """Sync configured sites to database."""
-        for site_cfg in self.config.get_active_sites():
-            site = Site(
-                name=site_cfg.name,
-                domain=site_cfg.domain,
-                sitemap_url=site_cfg.sitemap_url,
-                crawl_interval_minutes=site_cfg.crawl_interval_minutes,
-                is_active=site_cfg.is_active
-            )
-            self.repo.upsert_site(site)
-    
+
     def _schedule_site(self, site: Site):
         """Schedule crawl job for a site."""
         job_id = f"crawl_{site.domain}"
@@ -215,10 +201,14 @@ class CrawlScheduler:
                     # Extract article
                     extracted = self.extractor.extract(url, content, site.name)
                     
-                    # Detect sport category
-                    category = self.category_detector.detect(
-                        url, extracted.title, extracted.content
-                    )
+                    # Detect sport category using site fields directly
+                    # For specific sites, use sport_focus; for general sites, detect from content
+                    if site.site_type == "specific" and site.sport_focus:
+                        category = site.sport_focus
+                    else:
+                        category = self.category_detector.detect(
+                            url, extracted.title, extracted.content, None
+                        )
                     extracted.sport_category = category
                     
                     # Save to database
@@ -273,8 +263,7 @@ class CrawlScheduler:
         async with aiohttp.ClientSession() as session:
             self._session = session
             
-            # Sync and get sites
-            await self._sync_sites()
+            # Get active sites from database
             sites = self.repo.get_active_sites()
             
             for site in sites:

@@ -152,6 +152,50 @@ class SitemapParser:
         
         return entries
     
+    def parse_text_format(self, content: str) -> List[SitemapEntry]:
+        """
+        Parse text-formatted sitemaps (often from plugins).
+        Expected format:
+        URL <tab/space> Last Modified
+        https://example.com/page 2024-01-01T12:00:00Z
+        """
+        entries = []
+        lines = content.strip().split('\n')
+        
+        # Flag to start parsing after header
+        start_parsing = False
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Heuristic to detect start of data or just process lines that look like URLs
+            if line.startswith('http'):
+                parts = line.split()
+                if not parts:
+                    continue
+                    
+                loc = parts[0]
+                lastmod = parts[1] if len(parts) > 1 else None
+                
+                # Basic validation
+                if "://" not in loc:
+                    continue
+                    
+                entries.append(SitemapEntry(
+                    loc=loc,
+                    lastmod=lastmod
+                ))
+            
+            # Check for header row to avoid false positives if we want to be stricter
+            # "URL Last Modified"
+            
+        if entries:
+            logger.info(f"Parsed text format sitemap with {len(entries)} URLs")
+            
+        return entries
+
     def parse(self, xml_content: str) -> tuple[List[SitemapEntry], List[SitemapIndexEntry]]:
         """
         Parse any sitemap content.
@@ -160,7 +204,25 @@ class SitemapParser:
             Tuple of (url_entries, index_entries)
             One of these will be empty depending on sitemap type.
         """
-        if self.is_sitemap_index(xml_content):
-            return [], self.parse_index(xml_content)
-        else:
-            return self.parse_urlset(xml_content), []
+        # First try parsing as XML
+        try:
+            if self.is_sitemap_index(xml_content):
+                return [], self.parse_index(xml_content)
+            else:
+                # Try parsing as proper XML urlset
+                entries = self.parse_urlset(xml_content)
+                if entries:
+                    return entries, []
+        except etree.XMLSyntaxError:
+            # Fallback to text parsing if XML parsing fails
+            pass
+            
+        # If XML parsing failed or returned empty (and wasn't index), try text format
+        text_entries = self.parse_text_format(xml_content)
+        if text_entries:
+            return text_entries, []
+            
+        # If both failed, re-raise the XML error or return empty
+        # For now return empty with error log
+        logger.warning("Failed to parse sitemap as XML or text format")
+        return [], []

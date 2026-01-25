@@ -7,6 +7,24 @@ let currentPage = 0;
 const pageSize = 50;
 let pollInterval = null;
 
+// ==================== MOBILE MENU ====================
+
+function toggleMobileMenu() {
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.toggle('active');
+}
+
+// Close mobile menu when clicking outside
+document.addEventListener('click', (e) => {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.querySelector('.mobile-menu-toggle');
+    
+    if (sidebar && sidebar.classList.contains('active') && 
+        !sidebar.contains(e.target) && !toggle.contains(e.target)) {
+        sidebar.classList.remove('active');
+    }
+});
+
 // ==================== NAVIGATION ====================
 
 function showView(viewName) {
@@ -17,6 +35,10 @@ function showView(viewName) {
     // Show selected view
     document.getElementById(`view-${viewName}`).classList.add('active');
     document.querySelector(`[data-view="${viewName}"]`).classList.add('active');
+    
+    // Close mobile menu
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) sidebar.classList.remove('active');
 
     // Load data for the view
     switch (viewName) {
@@ -74,16 +96,16 @@ function renderRecentArticles(articles) {
     const container = document.getElementById('recent-articles-list');
 
     if (!articles.length) {
-        container.innerHTML = '<p class="text-muted">No articles yet. Run a crawl to get started!</p>';
+        container.innerHTML = '<p class="text-muted text-center">No articles yet. Run a crawl to get started!</p>';
         return;
     }
 
     container.innerHTML = articles.map(a => `
-        <div class="article-item">
-            <a href="${a.url}" target="_blank" class="article-item-title">${escapeHtml(a.title)}</a>
-            <div class="article-item-meta">
-                <span>${a.source_site}</span>
-                <span class="category-badge">${a.sport_category || 'sports'}</span>
+        <div class="article-card">
+            <a href="${a.url}" target="_blank" class="article-card-title">${escapeHtml(a.title)}</a>
+            <div class="article-card-meta">
+                <span><i class="fas fa-globe"></i> ${escapeHtml(a.source_site)}</span>
+                <span class="category-badge"><i class="fas fa-tag"></i> ${a.sport_category || 'sports'}</span>
             </div>
         </div>
     `).join('');
@@ -106,7 +128,7 @@ function renderSites(sites) {
     if (!sites.length) {
         container.innerHTML = `
             <div class="site-card">
-                <p>No sites configured. Add a site to get started!</p>
+                <p class="text-center">No sites configured. Add a site to get started!</p>
             </div>
         `;
         return;
@@ -122,15 +144,16 @@ function renderSites(sites) {
             </div>
             <div class="site-domain">${escapeHtml(s.domain)}</div>
             <div class="site-meta">
-                <span>⏱ Every ${s.crawl_interval_minutes} min</span>
-                <span>📂 ${s.site_type || 'specific'}</span>
+                <span><i class="fas fa-clock"></i> Every ${s.crawl_interval_minutes} min</span>
+                <span><i class="fas fa-folder"></i> ${s.site_type || 'specific'}</span>
             </div>
             <div class="site-actions">
                 <button class="btn btn-secondary" onclick="toggleSite('${s.id}')">
-                    ${s.is_active ? '⏸ Pause' : '▶ Enable'}
+                    <i class="fas fa-${s.is_active ? 'pause' : 'play'}"></i>
+                    ${s.is_active ? 'Pause' : 'Enable'}
                 </button>
                 <button class="btn btn-danger" onclick="deleteSite('${s.id}')">
-                    🗑
+                    <i class="fas fa-trash"></i>
                 </button>
             </div>
         </div>
@@ -258,8 +281,9 @@ function renderArticlesTable(articles) {
     if (!articles.length) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="5" style="text-align: center; padding: 32px;">
-                    No articles found. Run a crawl to fetch articles!
+                <td colspan="5" style="text-align: center; padding: 48px 32px;">
+                    <i class="fas fa-inbox" style="font-size: 48px; color: var(--text-muted); margin-bottom: 16px; display: block;"></i>
+                    <p style="color: var(--text-muted); font-size: 16px;">No articles found. Run a crawl to fetch articles!</p>
                 </td>
             </tr>
         `;
@@ -275,8 +299,8 @@ function renderArticlesTable(articles) {
             <td><span class="category-badge">${a.sport_category || 'sports'}</span></td>
             <td>${formatDate(a.publish_date || a.crawl_time)}</td>
             <td>
-                <a href="${a.url}" target="_blank" class="btn btn-secondary" style="padding: 4px 8px;">
-                    🔗
+                <a href="${a.url}" target="_blank" class="btn btn-secondary" style="padding: 6px 12px;">
+                    <i class="fas fa-external-link-alt"></i>
                 </a>
             </td>
         </tr>
@@ -407,8 +431,10 @@ function updateCrawlStatusUI(status) {
     // Update log
     if (status.errors && status.errors.length > 0) {
         log.innerHTML = status.errors.slice(-10).map(e =>
-            `<p class="log-entry error">⚠ ${escapeHtml(e)}</p>`
+            `<p class="log-entry error"><i class="fas fa-exclamation-triangle"></i> ${escapeHtml(e)}</p>`
         ).join('');
+    } else if (status.is_running) {
+        log.innerHTML = '<p class="log-entry"><i class="fas fa-spinner fa-spin"></i> Crawl in progress...</p>';
     }
 }
 

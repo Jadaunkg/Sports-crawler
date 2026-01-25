@@ -5,75 +5,123 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sports Crawler Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/styles.css?v=3.0">
+    <script src="/static/app.js?v=2.0" defer></script>
 </head>
 <body>
+    <!-- Mobile Menu Toggle -->
+    <button class="mobile-menu-toggle" onclick="toggleMobileMenu()">
+        <i class="fas fa-bars"></i>
+    </button>
+
     <div class="app">
         <!-- Sidebar -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="logo">
-                <div class="logo-icon">⚽</div>
+                <div class="logo-icon">
+                    <i class="fas fa-futbol"></i>
+                </div>
                 <span>Sports Crawler</span>
             </div>
             <nav class="nav">
                 <a href="#" class="nav-item active" data-view="dashboard">
-                    <span class="nav-icon">📊</span>
-                    Dashboard
+                    <i class="fas fa-chart-line"></i>
+                    <span>Dashboard</span>
                 </a>
                 <a href="#" class="nav-item" data-view="sites">
-                    <span class="nav-icon">🌐</span>
-                    Sites
+                    <i class="fas fa-globe"></i>
+                    <span>Sites</span>
                 </a>
                 <a href="#" class="nav-item" data-view="articles">
-                    <span class="nav-icon">📰</span>
-                    Articles
+                    <i class="fas fa-newspaper"></i>
+                    <span>Articles</span>
                 </a>
                 <a href="#" class="nav-item" data-view="crawl">
-                    <span class="nav-icon">🔄</span>
-                    Run Crawler
+                    <i class="fas fa-sync-alt"></i>
+                    <span>Run Crawler</span>
                 </a>
             </nav>
+            
+            <div class="sidebar-footer">
+                <div class="scheduler-status">
+                    <i class="fas fa-clock"></i>
+                    <span class="status-text">Auto-scheduler active</span>
+                </div>
+            </div>
         </aside>
 
         <!-- Main Content -->
         <main class="main">
             <!-- Dashboard View -->
             <section id="view-dashboard" class="view active">
-                <header class="header">
-                    <h1>Dashboard</h1>
+                <header class="page-header">
+                    <div class="header-content">
+                        <h1><i class="fas fa-chart-line"></i> Dashboard</h1>
+                        <p class="header-subtitle">Monitor your sports crawler performance</p>
+                    </div>
                     <button class="btn btn-primary" onclick="showView('crawl')">
-                        🚀 Run Crawler
+                        <i class="fas fa-rocket"></i>
+                        Run Crawler
                     </button>
                 </header>
                 
                 <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-icon sites">🌐</div>
-                        <div class="stat-info">
-                            <span class="stat-value" id="stat-sites">0</span>
+                    <div class="stat-card sites-card">
+                        <div class="stat-header">
+                            <div class="stat-icon">
+                                <i class="fas fa-globe"></i>
+                            </div>
                             <span class="stat-label">Active Sites</span>
                         </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon articles">📰</div>
-                        <div class="stat-info">
-                            <span class="stat-value" id="stat-articles">0</span>
-                            <span class="stat-label">Total Articles</span>
+                        <div class="stat-value" id="stat-sites">0</div>
+                        <div class="stat-footer">
+                            <span class="stat-trend">
+                                <i class="fas fa-arrow-up"></i> All systems operational
+                            </span>
                         </div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-icon status">✅</div>
-                        <div class="stat-info">
-                            <span class="stat-value" id="stat-status">Ready</span>
+                    
+                    <div class="stat-card articles-card">
+                        <div class="stat-header">
+                            <div class="stat-icon">
+                                <i class="fas fa-newspaper"></i>
+                            </div>
+                            <span class="stat-label">Total Articles</span>
+                        </div>
+                        <div class="stat-value" id="stat-articles">0</div>
+                        <div class="stat-footer">
+                            <span class="stat-trend">
+                                <i class="fas fa-database"></i> In database
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card status-card">
+                        <div class="stat-header">
+                            <div class="stat-icon">
+                                <i class="fas fa-heartbeat"></i>
+                            </div>
                             <span class="stat-label">Crawler Status</span>
+                        </div>
+                        <div class="stat-value" id="stat-status">Ready</div>
+                        <div class="stat-footer">
+                            <span class="stat-trend">
+                                <i class="fas fa-check-circle"></i> Ready to crawl
+                            </span>
                         </div>
                     </div>
                 </div>
 
-                <div class="recent-articles">
-                    <h2>Recent Articles</h2>
-                    <div class="articles-list" id="recent-articles-list">
+                <div class="recent-articles-section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-clock"></i> Recent Articles</h2>
+                        <a href="#" class="view-all-link" onclick="event.preventDefault(); showView('articles')">
+                            View all <i class="fas fa-arrow-right"></i>
+                        </a>
+                    </div>
+                    <div class="articles-grid" id="recent-articles-list">
                         <!-- Populated by JS -->
                     </div>
                 </div>
@@ -81,10 +129,14 @@
 
             <!-- Sites View -->
             <section id="view-sites" class="view">
-                <header class="header">
-                    <h1>Manage Sites</h1>
+                <header class="page-header">
+                    <div class="header-content">
+                        <h1><i class="fas fa-globe"></i> Manage Sites</h1>
+                        <p class="header-subtitle">Add and manage your crawling sources</p>
+                    </div>
                     <button class="btn btn-primary" onclick="openAddSiteModal()">
-                        ➕ Add Site
+                        <i class="fas fa-plus"></i>
+                        Add Site
                     </button>
                 </header>
 
@@ -95,96 +147,133 @@
 
             <!-- Articles View -->
             <section id="view-articles" class="view">
-                <header class="header">
-                    <h1>Articles</h1>
+                <header class="page-header">
+                    <div class="header-content">
+                        <h1><i class="fas fa-newspaper"></i> Articles</h1>
+                        <p class="header-subtitle">Browse and filter crawled articles</p>
+                    </div>
                     <div class="filters">
-                        <select id="filter-source" onchange="loadArticles()">
-                            <option value="">All Sources</option>
-                        </select>
-                        <select id="filter-category" onchange="loadArticles()">
-                            <option value="">All Categories</option>
-                            <option value="soccer">Soccer</option>
-                            <option value="football">Football</option>
-                            <option value="basketball">Basketball</option>
-                            <option value="cricket">Cricket</option>
-                        </select>
+                        <div class="filter-group">
+                            <i class="fas fa-filter"></i>
+                            <select id="filter-source" onchange="loadArticles()">
+                                <option value="">All Sources</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <i class="fas fa-tag"></i>
+                            <select id="filter-category" onchange="loadArticles()">
+                                <option value="">All Categories</option>
+                                <option value="soccer">Soccer</option>
+                                <option value="football">Football</option>
+                                <option value="basketball">Basketball</option>
+                                <option value="cricket">Cricket</option>
+                            </select>
+                        </div>
                     </div>
                 </header>
 
-                <div class="articles-table-container">
-                    <table class="articles-table">
-                        <thead>
-                            <tr>
-                                <th>Title</th>
-                                <th>Source</th>
-                                <th>Category</th>
-                                <th>Date</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="articles-tbody">
-                            <!-- Populated by JS -->
-                        </tbody>
-                    </table>
+                <div class="articles-table-card">
+                    <div class="table-wrapper">
+                        <table class="articles-table">
+                            <thead>
+                                <tr>
+                                    <th><i class="fas fa-heading"></i> Title</th>
+                                    <th><i class="fas fa-globe"></i> Source</th>
+                                    <th><i class="fas fa-tag"></i> Category</th>
+                                    <th><i class="fas fa-calendar"></i> Date</th>
+                                    <th><i class="fas fa-link"></i> Link</th>
+                                </tr>
+                            </thead>
+                            <tbody id="articles-tbody">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
                 
                 <div class="pagination">
-                    <button class="btn btn-secondary" id="btn-prev" onclick="prevPage()">← Previous</button>
-                    <span id="page-info">Page 1</span>
-                    <button class="btn btn-secondary" id="btn-next" onclick="nextPage()">Next →</button>
+                    <button class="btn btn-secondary" id="btn-prev" onclick="prevPage()">
+                        <i class="fas fa-chevron-left"></i> Previous
+                    </button>
+                    <span id="page-info" class="page-info">Page 1</span>
+                    <button class="btn btn-secondary" id="btn-next" onclick="nextPage()">
+                        Next <i class="fas fa-chevron-right"></i>
+                    </button>
                 </div>
             </section>
 
             <!-- Crawl View -->
             <section id="view-crawl" class="view">
-                <header class="header">
-                    <h1>Run Crawler</h1>
+                <header class="page-header">
+                    <div class="header-content">
+                        <h1><i class="fas fa-sync-alt"></i> Run Crawler</h1>
+                        <p class="header-subtitle">Start a new crawl session</p>
+                    </div>
                 </header>
 
-                <div class="crawl-controls">
-                    <div class="crawl-options">
-                        <div class="option-group">
-                            <label>Days to crawl:</label>
-                            <select id="crawl-days">
-                                <option value="0">Today only</option>
-                                <option value="1">Last 1 day</option>
-                                <option value="3" selected>Last 3 days</option>
-                            </select>
+                <div class="crawl-container">
+                    <div class="crawl-controls-card">
+                        <h3><i class="fas fa-sliders-h"></i> Crawl Settings</h3>
+                        <div class="crawl-options">
+                            <div class="option-group">
+                                <label><i class="fas fa-calendar-day"></i> Days to crawl</label>
+                                <select id="crawl-days">
+                                    <option value="0">Today only</option>
+                                    <option value="1">Last 1 day</option>
+                                    <option value="3" selected>Last 3 days</option>
+                                    <option value="7">Last 7 days</option>
+                                </select>
+                            </div>
+                            <div class="option-group">
+                                <label><i class="fas fa-globe"></i> Sites</label>
+                                <select id="crawl-sites">
+                                    <option value="">All active sites</option>
+                                </select>
+                            </div>
                         </div>
-                        <div class="option-group">
-                            <label>Sites:</label>
-                            <select id="crawl-sites">
-                                <option value="">All active sites</option>
-                            </select>
+                        
+                        <div class="crawl-buttons">
+                            <button class="btn btn-success btn-lg" id="btn-start-crawl" onclick="startCrawl()">
+                                <i class="fas fa-play"></i>
+                                Start Crawl
+                            </button>
+                            <button class="btn btn-danger btn-lg" id="btn-stop-crawl" onclick="stopCrawl()" disabled>
+                                <i class="fas fa-stop"></i>
+                                Stop
+                            </button>
                         </div>
-                    </div>
-                    
-                    <div class="crawl-buttons">
-                        <button class="btn btn-primary btn-lg" id="btn-start-crawl" onclick="startCrawl()">
-                            🚀 Start Crawl
-                        </button>
-                        <button class="btn btn-danger btn-lg" id="btn-stop-crawl" onclick="stopCrawl()" disabled>
-                            ⏹ Stop
-                        </button>
-                    </div>
-                </div>
-
-                <div class="crawl-status-panel" id="crawl-status-panel">
-                    <div class="status-header">
-                        <span class="status-indicator" id="status-indicator"></span>
-                        <span id="status-text">Ready to crawl</span>
-                    </div>
-                    
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
-                    </div>
-                    <div class="progress-info">
-                        <span id="progress-text">0 / 0 articles</span>
-                        <span id="saved-text">0 saved</span>
                     </div>
 
-                    <div class="crawl-log" id="crawl-log">
-                        <p class="log-entry">Waiting to start...</p>
+                    <div class="crawl-status-card" id="crawl-status-panel">
+                        <div class="status-header">
+                            <div class="status-indicator-wrapper">
+                                <span class="status-indicator" id="status-indicator"></span>
+                                <span id="status-text">Ready to crawl</span>
+                            </div>
+                        </div>
+                        
+                        <div class="progress-section">
+                            <div class="progress-label">
+                                <span><i class="fas fa-tasks"></i> Progress</span>
+                                <span id="progress-text">0 / 0 articles</span>
+                            </div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+                            </div>
+                            <div class="progress-stats">
+                                <div class="stat-item">
+                                    <i class="fas fa-save"></i>
+                                    <span id="saved-text">0 saved</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="crawl-log-section">
+                            <h4><i class="fas fa-terminal"></i> Crawl Log</h4>
+                            <div class="crawl-log" id="crawl-log">
+                                <p class="log-entry"><i class="fas fa-info-circle"></i> Waiting to start...</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -193,33 +282,46 @@
 
     <!-- Add Site Modal -->
     <div class="modal" id="add-site-modal">
+        <div class="modal-overlay" onclick="closeAddSiteModal()"></div>
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Add New Site</h2>
-                <button class="modal-close" onclick="closeAddSiteModal()">×</button>
+                <h2><i class="fas fa-plus-circle"></i> Add New Site</h2>
+                <button class="modal-close" onclick="closeAddSiteModal()">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             <form id="add-site-form" onsubmit="addSite(event)">
                 <div class="form-group">
-                    <label for="site-name">Site Name</label>
+                    <label for="site-name">
+                        <i class="fas fa-tag"></i> Site Name
+                    </label>
                     <input type="text" id="site-name" placeholder="e.g., ESPN" required>
                 </div>
                 <div class="form-group">
-                    <label for="site-domain">Domain</label>
+                    <label for="site-domain">
+                        <i class="fas fa-globe"></i> Domain
+                    </label>
                     <input type="text" id="site-domain" placeholder="e.g., espn.com" required>
                 </div>
                 <div class="form-group">
-                    <label for="site-sitemap">Sitemap URL</label>
+                    <label for="site-sitemap">
+                        <i class="fas fa-sitemap"></i> Sitemap URL
+                    </label>
                     <input type="url" id="site-sitemap" placeholder="https://..." required>
                 </div>
                 <div class="form-group">
-                    <label for="site-type">Site Type</label>
+                    <label for="site-type">
+                        <i class="fas fa-layer-group"></i> Site Type
+                    </label>
                     <select id="site-type" onchange="toggleSportFocus()">
                         <option value="specific">Specific Sport (no categorization needed)</option>
                         <option value="general">General Sports (auto-categorize articles)</option>
                     </select>
                 </div>
                 <div class="form-group" id="sport-focus-group">
-                    <label for="sport-focus">Sport Focus</label>
+                    <label for="sport-focus">
+                        <i class="fas fa-basketball-ball"></i> Sport Focus
+                    </label>
                     <select id="sport-focus">
                         <option value="soccer">Soccer/Football</option>
                         <option value="basketball">Basketball</option>
@@ -232,17 +334,23 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label for="crawl-interval">Crawl Interval (minutes)</label>
+                    <label for="crawl-interval">
+                        <i class="fas fa-clock"></i> Crawl Interval (minutes)
+                    </label>
                     <input type="number" id="crawl-interval" value="15" min="5" max="60">
                 </div>
                 <div class="form-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeAddSiteModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Add Site</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeAddSiteModal()">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-check"></i> Add Site
+                    </button>
                 </div>
             </form>
         </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=2.0"></script>
 </body>
 </html>

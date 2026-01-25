@@ -1,20 +1,6 @@
-# Preconfigured sports news sites
-sites:
-  - name: "Goal"
-    domain: "goal.com"
-    sitemap_url: "https://www.goal.com/en-us/sitemap/google-news.xml"
-    crawl_interval_minutes: 15
-    is_active: true
-    site_type: "specific"  # specific = single sport, general = multi-sport
-    sport_focus: "soccer"  # only for specific sites
-    
-  - name: "RealChamps"
-    domain: "therealchamps.com"
-    sitemap_url: "https://therealchamps.com/news-sitemap.xml"
-    crawl_interval_minutes: 15
-    is_active: true
-    site_type: "specific"
-    sport_focus: "soccer"
+# Default Configuration for Sports Crawler
+# NOTE: Sites are now managed via the database (added through frontend)
+# This file contains only default settings, rejection patterns, and sport categories
 
 # Default settings
 defaults:
@@ -23,7 +9,7 @@ defaults:
   request_delay_max: 5
   max_retries: 3
   backoff_factor: 2
-  days_to_crawl: 3  # Only fetch articles from last N days
+  days_to_crawl: 2  # Only fetch articles from last N days
   
 # URL patterns to reject (not articles)
 reject_patterns:
