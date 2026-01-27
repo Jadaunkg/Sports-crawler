@@ -121,7 +121,7 @@ class CrawlScheduler:
         try:
             # Phase 1: Find new URLs from sitemap
             tracker = UrlTracker(self._session)
-            new_urls = await tracker.find_new_urls(site)
+            new_urls = await tracker.find_recent_urls(site, days=2)  # Only last 2 days
             
             # Log sitemap check
             self.repo.log_crawl(
@@ -159,20 +159,27 @@ class CrawlScheduler:
             )
     
     async def _process_new_articles(self, site: Site, new_urls: List[Dict[str, Any]]):
-        """Process and store new articles."""
-        async with HttpClient(self._session) as client:
-            for url_info in new_urls:
+        """Process and store new articles in parallel for speed."""
+        # Filter valid URLs first
+        valid_urls = [
+            url_info for url_info in new_urls
+            if self.validator.quick_validate_url(url_info["url"])
+        ]
+        
+        if not valid_urls:
+            return
+        
+        # Use semaphore to limit concurrent requests (5 at a time)
+        semaphore = asyncio.Semaphore(5)
+        
+        async def process_single_article(url_info: Dict[str, Any], client: HttpClient) -> bool:
+            """Process a single article. Returns True if saved successfully."""
+            async with semaphore:
                 url = url_info["url"]
-                
-                # Quick URL validation
-                if not self.validator.quick_validate_url(url):
-                    logger.debug(f"URL rejected by pattern", extra={"url": url})
-                    continue
                 
                 # Check backoff
                 if self.backoff.is_blocked(site.domain):
-                    logger.warning(f"Site blocked during crawl", extra={"site": site.name})
-                    break
+                    return False
                 
                 try:
                     # Fetch article
@@ -180,29 +187,17 @@ class CrawlScheduler:
                     
                     if error or not content:
                         self.backoff.record_failure(site.domain, http_code)
-                        self.repo.log_crawl(
-                            site_id=site.id,
-                            crawl_type="article",
-                            status="failed",
-                            http_code=http_code,
-                            error_message=error
-                        )
-                        continue
+                        return False
                     
                     # Validate content
                     is_valid, rejection_reason = self.validator.validate(url, content)
                     if not is_valid:
-                        logger.debug(
-                            f"Article rejected: {rejection_reason}",
-                            extra={"url": url}
-                        )
-                        continue
+                        return False
                     
                     # Extract article
                     extracted = self.extractor.extract(url, content, site.name)
                     
-                    # Detect sport category using site fields directly
-                    # For specific sites, use sport_focus; for general sites, detect from content
+                    # Detect sport category
                     if site.site_type == "specific" and site.sport_focus:
                         category = site.sport_focus
                     else:
@@ -228,19 +223,26 @@ class CrawlScheduler:
                     # Trigger analysis pipeline
                     await self.trigger_service.trigger_analysis(saved)
                     
-                    # Log success
-                    self.repo.log_crawl(
-                        site_id=site.id,
-                        crawl_type="article",
-                        status="success",
-                        http_code=http_code
-                    )
-                    
                     self.backoff.record_success(site.domain)
+                    return True
                     
                 except Exception as e:
                     logger.error(f"Article processing failed: {e}", extra={"url": url})
                     self.backoff.record_failure(site.domain)
+                    return False
+        
+        # Process all articles in parallel
+        async with HttpClient(self._session) as client:
+            tasks = [process_single_article(url_info, client) for url_info in valid_urls]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Count successes
+            success_count = sum(1 for r in results if r is True)
+            logger.info(
+                f"Processed {success_count}/{len(valid_urls)} articles successfully",
+                extra={"site": site.name}
+            )
+
     
     async def run_once(self, dry_run: bool = False) -> Dict[str, Any]:
         """
@@ -269,7 +271,7 @@ class CrawlScheduler:
             for site in sites:
                 try:
                     tracker = UrlTracker(session)
-                    new_urls = await tracker.find_new_urls(site)
+                    new_urls = await tracker.find_recent_urls(site, days=2)  # Only last 2 days
                     
                     results["sites_processed"] += 1
                     results["urls_found"] += len(new_urls)

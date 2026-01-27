@@ -13,8 +13,10 @@ from src.logging_config import get_logger
 
 logger = get_logger("sitemap.parser")
 
-# XML namespaces
-SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+# XML namespaces - support both HTTP and HTTPS variants
+SITEMAP_NS_HTTP = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+SITEMAP_NS_HTTPS = {"sm": "https://www.sitemaps.org/schemas/sitemap/0.9"}
+SITEMAP_NS = SITEMAP_NS_HTTP  # Default for backward compatibility
 NEWS_NS = {"news": "http://www.google.com/schemas/sitemap-news/0.9"}
 
 
@@ -77,10 +79,13 @@ class SitemapParser:
         try:
             root = etree.fromstring(xml_content.encode("utf-8"))
             
+            # Detect the correct namespace (HTTP or HTTPS)
+            sitemap_ns = self._detect_sitemap_namespace(root)
+            
             # Find all <sitemap> elements
-            for sitemap in root.xpath("//sm:sitemap", namespaces=SITEMAP_NS):
-                loc_elem = sitemap.find("sm:loc", namespaces=SITEMAP_NS)
-                lastmod_elem = sitemap.find("sm:lastmod", namespaces=SITEMAP_NS)
+            for sitemap in root.xpath("//sm:sitemap", namespaces=sitemap_ns):
+                loc_elem = sitemap.find("sm:loc", namespaces=sitemap_ns)
+                lastmod_elem = sitemap.find("sm:lastmod", namespaces=sitemap_ns)
                 
                 if loc_elem is not None and loc_elem.text:
                     entries.append(SitemapIndexEntry(
@@ -94,6 +99,20 @@ class SitemapParser:
             logger.error(f"XML parsing error in sitemap index: {e}")
         
         return entries
+
+    
+    def _detect_sitemap_namespace(self, root) -> dict:
+        """
+        Detect whether the sitemap uses HTTP or HTTPS namespace.
+        Some sites (like sportstar.thehindu.com) use HTTPS namespace.
+        """
+        # Get the root element's namespace
+        nsmap = root.nsmap
+        default_ns = nsmap.get(None, "")
+        
+        if "https://www.sitemaps.org/schemas/sitemap/0.9" in default_ns:
+            return SITEMAP_NS_HTTPS
+        return SITEMAP_NS_HTTP
     
     def parse_urlset(self, xml_content: str) -> List[SitemapEntry]:
         """
@@ -110,12 +129,15 @@ class SitemapParser:
         try:
             root = etree.fromstring(xml_content.encode("utf-8"))
             
+            # Detect the correct namespace (HTTP or HTTPS)
+            sitemap_ns = self._detect_sitemap_namespace(root)
+            
             # Find all <url> elements
-            for url_elem in root.xpath("//sm:url", namespaces=SITEMAP_NS):
-                loc = url_elem.find("sm:loc", namespaces=SITEMAP_NS)
-                lastmod = url_elem.find("sm:lastmod", namespaces=SITEMAP_NS)
-                changefreq = url_elem.find("sm:changefreq", namespaces=SITEMAP_NS)
-                priority = url_elem.find("sm:priority", namespaces=SITEMAP_NS)
+            for url_elem in root.xpath("//sm:url", namespaces=sitemap_ns):
+                loc = url_elem.find("sm:loc", namespaces=sitemap_ns)
+                lastmod = url_elem.find("sm:lastmod", namespaces=sitemap_ns)
+                changefreq = url_elem.find("sm:changefreq", namespaces=sitemap_ns)
+                priority = url_elem.find("sm:priority", namespaces=sitemap_ns)
                 
                 if loc is None or not loc.text:
                     continue

@@ -71,7 +71,8 @@ class SitemapFetcher:
         
         try:
             async with self.session.get(url, headers=self._get_headers()) as response:
-                if response.status != 200:
+                # Accept any 2xx status code as success
+                if not (200 <= response.status < 300):
                     logger.warning(
                         f"Sitemap fetch failed",
                         extra={"url": url, "http_code": response.status}
@@ -115,7 +116,8 @@ class SitemapFetcher:
         """
         try:
             async with self.session.get(url, headers=self._get_headers()) as response:
-                if response.status != 200:
+                # Accept any 2xx status code as success
+                if not (200 <= response.status < 300):
                     return None, response.status, f"HTTP {response.status}"
                 
                 content = await response.read()
