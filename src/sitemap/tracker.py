@@ -163,16 +163,33 @@ class UrlTracker:
             return []
         
         # Filter to recent entries only using lastmod or news_publication_date
+        # IMPORTANT: Include URLs without dates (assume they're recent - common for new sitemaps)
         recent_entries = []
+        no_date_entries = []
+        
         for entry in entries:
             date_str = entry.lastmod or entry.news_publication_date
-            if self._is_within_days(date_str, days):
-                recent_entries.append(entry)
+            if date_str:
+                if self._is_within_days(date_str, days):
+                    recent_entries.append(entry)
+            else:
+                # No date info - collect separately
+                no_date_entries.append(entry)
         
-        logger.info(
-            f"Filtered to {len(recent_entries)} URLs from last {days} days out of {len(entries)} total",
-            extra={"site": site.name}
-        )
+        # If we have dated entries, use them. If not, use undated entries (limited)
+        if recent_entries:
+            logger.info(
+                f"Filtered to {len(recent_entries)} URLs from last {days} days out of {len(entries)} total",
+                extra={"site": site.name}
+            )
+        elif no_date_entries:
+            # For sitemaps without dates, take a reasonable sample (last 100 URLs in sitemap)
+            # Sitemaps typically have newest URLs first or last
+            recent_entries = no_date_entries[-100:] if len(no_date_entries) > 100 else no_date_entries
+            logger.info(
+                f"Sitemap has no dates - using {len(recent_entries)} URLs from {len(entries)} total",
+                extra={"site": site.name}
+            )
         
         if not recent_entries:
             return []

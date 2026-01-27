@@ -225,8 +225,8 @@ async def get_sites():
 
 
 @app.post("/api/sites", response_model=SiteResponse)
-async def add_site(site: SiteCreate):
-    """Add a new site to crawl (saves to database)."""
+async def add_site(site: SiteCreate, background_tasks: BackgroundTasks):
+    """Add a new site to crawl (saves to database) and triggers immediate crawl."""
     repo = get_repository()
     
     # Check if domain already exists
@@ -249,6 +249,10 @@ async def add_site(site: SiteCreate):
     )
     
     saved = repo.upsert_site(new_site)
+    
+    # Trigger immediate crawl for the new site in background
+    background_tasks.add_task(run_single_site_crawl, str(saved.id))
+    logger.info(f"New site added and immediate crawl triggered: {saved.name}")
     
     return SiteResponse(
         id=str(saved.id),
@@ -464,6 +468,37 @@ async def run_parallel_crawl(site_ids: Optional[List[str]], days: int):
     finally:
         crawl_status["is_running"] = False
         crawl_status["current_site"] = None
+
+
+async def run_single_site_crawl(site_id: str):
+    """
+    Run crawl for a single newly added site.
+    Uses the same logic as run_parallel_crawl but for one site only.
+    """
+    global crawl_status
+    
+    # If another crawl is running, queue this for the next scheduled run
+    if crawl_status["is_running"]:
+        logger.info(f"Crawl in progress, skipping immediate crawl for site {site_id}")
+        return
+    
+    repo = get_repository()
+    config = get_config()
+    
+    # Find the site by ID
+    all_sites = repo.get_all_sites()
+    site = next((s for s in all_sites if str(s.id) == site_id), None)
+    
+    if not site:
+        logger.warning(f"Site not found for immediate crawl: {site_id}")
+        return
+    
+    logger.info(f"Starting immediate crawl for new site: {site.name}")
+    
+    # Run the parallel crawl for just this one site
+    await run_parallel_crawl([site_id], days=config.days_to_crawl)
+    
+    logger.info(f"Immediate crawl completed for: {site.name}")
 
 
 async def process_single_article(
