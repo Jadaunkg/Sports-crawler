@@ -59,11 +59,30 @@ class CrawlScheduler:
         for site in sites:
             self._schedule_site(site)
         
+        # Schedule daily cleanup
+        self.scheduler.add_job(
+            self._cleanup_job,
+            IntervalTrigger(hours=24),
+            id="daily_cleanup",
+            max_instances=1,
+            next_run_time=datetime.now(timezone.utc) # Run on start to ensure cleanliness
+        )
+        logger.info("Scheduled daily cleanup job")
+
         # Start scheduler
         self.scheduler.start()
         self._running = True
         
         logger.info(f"Scheduler started with {len(sites)} sites")
+
+    async def _cleanup_job(self):
+        """Run daily cleanup of old articles."""
+        logger.info("Starting daily article cleanup")
+        try:
+            count = self.repo.cleanup_old_articles(days=2)
+            logger.info(f"Cleanup completed: removed {count} old articles")
+        except Exception as e:
+            logger.error(f"Cleanup job failed: {e}")
     
     async def stop(self):
         """Stop the scheduler gracefully."""
@@ -119,9 +138,10 @@ class CrawlScheduler:
             return
         
         try:
-            # Phase 1: Find new URLs from sitemap
+            # Phase 1: Find URLs from last 7 days from sitemap
             tracker = UrlTracker(self._session)
-            new_urls = await tracker.find_recent_urls(site, days=2)  # Only last 2 days
+            # Fetch URLs from last 7 days (satisfies "discovered table contains only last 7 days urls")
+            discovered_urls = await tracker.find_recent_urls(site, days=7)
             
             # Log sitemap check
             self.repo.log_crawl(
@@ -129,19 +149,33 @@ class CrawlScheduler:
                 crawl_type="sitemap",
                 status="success",
                 http_code=200,
-                urls_found=len(new_urls) + len(tracker.repo.get_known_urls_batch([u["url"] for u in new_urls])),
-                new_urls=len(new_urls)
+                urls_found=len(discovered_urls) + len(tracker.repo.get_known_urls_batch([u["url"] for u in discovered_urls])),
+                new_urls=len(discovered_urls)
             )
             
-            if not new_urls:
-                logger.info(f"No new URLs found", extra={"site": site.name})
+            if not discovered_urls:
+                logger.info(f"No new URLs found in last 7 days", extra={"site": site.name})
                 return
             
-            # Record new URLs in database
-            tracker.record_new_urls(site, new_urls)
+            # Record discovered URLs in database
+            tracker.record_new_urls(site, discovered_urls)
             
-            # Phase 2: Crawl and process each new article
-            await self._process_new_articles(site, new_urls)
+            # Filter for processing: "save all the articles of last 2 days"
+            # We also include URLs with no date to be safe
+            urls_to_process = []
+            for u in discovered_urls:
+                lastmod = u.get("lastmod")
+                if not lastmod or tracker.is_within_days(lastmod, days=2):
+                    urls_to_process.append(u)
+            
+            logger.info(
+                f"Queuing {len(urls_to_process)} URLs for processing (last 2 days)",
+                extra={"site": site.name, "total_discovered_7d": len(discovered_urls)}
+            )
+            
+            # Phase 2: Crawl and process recent/new articles
+            if urls_to_process:
+                await self._process_new_articles(site, urls_to_process)
             
             # Reset backoff on success
             self.backoff.record_success(site.domain)
@@ -271,14 +305,25 @@ class CrawlScheduler:
             for site in sites:
                 try:
                     tracker = UrlTracker(session)
-                    new_urls = await tracker.find_recent_urls(site, days=2)  # Only last 2 days
+                    # Find URLs from last 7 days from sitemap
+                    discovered_urls = await tracker.find_recent_urls(site, days=7)
                     
                     results["sites_processed"] += 1
-                    results["urls_found"] += len(new_urls)
+                    results["urls_found"] += len(discovered_urls)
                     
-                    if not dry_run and new_urls:
-                        tracker.record_new_urls(site, new_urls)
-                        await self._process_new_articles(site, new_urls)
+                    if not dry_run and discovered_urls:
+                        # Record discovered URLs
+                        tracker.record_new_urls(site, discovered_urls)
+                        
+                        # Filter for processing (last 2 days)
+                        urls_to_process = []
+                        for u in discovered_urls:
+                            lastmod = u.get("lastmod")
+                            if not lastmod or tracker.is_within_days(lastmod, days=2):
+                                urls_to_process.append(u)
+                        
+                        if urls_to_process:
+                             await self._process_new_articles(site, urls_to_process)
                         # Note: articles_saved would need counting from process
                     
                     logger.info(

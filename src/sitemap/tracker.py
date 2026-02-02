@@ -120,12 +120,13 @@ class UrlTracker:
         except (ValueError, TypeError):
             return False
     
-    def _is_within_days(self, date_str: Optional[str], days: int = 3) -> bool:
+    def is_within_days(self, date_str: Optional[str], days: int = 3) -> bool:
         """Check if a date string is within last N days."""
         if not date_str:
             return False
         try:
             parsed = parse_date(date_str)
+            # Ensure timezone awareness for comparison if needed, though date() strips it
             today = date.today()
             diff = (today - parsed.date()).days
             return 0 <= diff <= days
@@ -170,7 +171,7 @@ class UrlTracker:
         for entry in entries:
             date_str = entry.lastmod or entry.news_publication_date
             if date_str:
-                if self._is_within_days(date_str, days):
+                if self.is_within_days(date_str, days):
                     recent_entries.append(entry)
             else:
                 # No date info - collect separately

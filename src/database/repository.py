@@ -258,6 +258,32 @@ class Repository:
         ).eq("url_hash", url_hash).execute()
         return len(result.data) > 0
     
+    def cleanup_old_articles(self, days: int = 2) -> int:
+        """
+        Delete articles older than N days.
+        Uses publish_date or crawl_time.
+        """
+        from datetime import timedelta
+        
+        # Calculate cutoff date
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        
+        try:
+            # Delete where publish_date < cutoff
+            # Note: We prioritize publish_date, but could fall back to crawl_time (created_at)
+            # Safe approach: Delete if publish_date < cutoff OR (publish_date is NULL AND created_at < cutoff)
+            # Simpler for now: Delete based on crawl_time which is always present and reliable for "when we got it"
+            # User wants "last 2 days article in articles table", implying retention based on freshness to US.
+            
+            result = self.db.table("articles").delete().lt("crawl_time", cutoff).execute()
+            count = len(result.data) if result.data else 0
+            
+            logger.info(f"Cleaned up {count} articles older than {days} days")
+            return count
+        except Exception as e:
+            logger.error(f"Cleanup failed: {e}")
+            return 0
+    
     # ==================== CRAWL LOGS ====================
     
     def log_crawl(

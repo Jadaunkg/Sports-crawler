@@ -218,6 +218,52 @@ class SitemapParser:
             
         return entries
 
+    def parse_regex(self, content: str) -> List[SitemapEntry]:
+        """
+        Parse sitemap using regex (fallback for malformed XML).
+        Extracts <loc> and optional <lastmod>.
+        """
+        import re
+        entries = []
+        
+        # Pattern for URL entries
+        # Use non-greedy match for content
+        # Handle cases where tags might have attributes or namespaces
+        loc_pattern = r'<.*?loc.*?>(.*?)</.*?loc.*?>'
+        lastmod_pattern = r'<.*?lastmod.*?>(.*?)</.*?lastmod.*?>'
+        
+        # Simple approach: find all <url> blocks then extract fields
+        # This handles multiple URLs better than global findall
+        url_blocks = re.findall(r'<.*?url.*?>(.*?)</.*?url.*?>', content, re.DOTALL | re.IGNORECASE)
+        
+        if not url_blocks:
+            # Fallback for plain list of <loc> tags without wrapping <url>
+            # This happens in some sitemaps
+            locs = re.findall(loc_pattern, content, re.DOTALL | re.IGNORECASE)
+            # Try to map lastmods if they appear in same order (risky but better than nothing)
+            return [SitemapEntry(loc=l.strip()) for l in locs if l.strip()]
+            
+        for block in url_blocks:
+            loc_match = re.search(loc_pattern, block, re.DOTALL | re.IGNORECASE)
+            if not loc_match:
+                continue
+                
+            loc = loc_match.group(1).strip()
+            if not loc:
+                continue
+                
+            lastmod = None
+            lastmod_match = re.search(lastmod_pattern, block, re.DOTALL | re.IGNORECASE)
+            if lastmod_match:
+                lastmod = lastmod_match.group(1).strip()
+                
+            entries.append(SitemapEntry(loc=loc, lastmod=lastmod))
+            
+        if entries:
+            logger.info(f"Parsed sitemap using regex fallback with {len(entries)} URLs")
+            
+        return entries
+
     def parse(self, xml_content: str) -> tuple[List[SitemapEntry], List[SitemapIndexEntry]]:
         """
         Parse any sitemap content.
@@ -235,10 +281,16 @@ class SitemapParser:
                 entries = self.parse_urlset(xml_content)
                 if entries:
                     return entries, []
-        except etree.XMLSyntaxError:
+        except (etree.XMLSyntaxError, Exception) as e:
             # Fallback to text parsing if XML parsing fails
+            logger.warning(f"XML parsing failed: {e}. Trying fallbacks.")
             pass
             
+        # Try regex fallback for pseudo-XML
+        regex_entries = self.parse_regex(xml_content)
+        if regex_entries:
+            return regex_entries, []
+
         # If XML parsing failed or returned empty (and wasn't index), try text format
         text_entries = self.parse_text_format(xml_content)
         if text_entries:
@@ -246,5 +298,5 @@ class SitemapParser:
             
         # If both failed, re-raise the XML error or return empty
         # For now return empty with error log
-        logger.warning("Failed to parse sitemap as XML or text format")
+        logger.warning("Failed to parse sitemap as XML, regex, or text format")
         return [], []
