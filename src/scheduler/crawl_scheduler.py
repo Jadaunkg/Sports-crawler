@@ -138,10 +138,12 @@ class CrawlScheduler:
             return
         
         try:
-            # Phase 1: Find URLs from last 7 days from sitemap
+            # Phase 1: Find URLs from last N days from sitemap
+            # Use configured days_to_crawl + a buffer (e.g. 5 days) for discovery to ensure we don't miss anything
+            # The stricter filtering happens before processing
+            discovery_days = self.config.days_to_crawl + 5
             tracker = UrlTracker(self._session)
-            # Fetch URLs from last 7 days (satisfies "discovered table contains only last 7 days urls")
-            discovered_urls = await tracker.find_recent_urls(site, days=7)
+            discovered_urls = await tracker.find_recent_urls(site, days=discovery_days)
             
             # Log sitemap check
             self.repo.log_crawl(
@@ -165,7 +167,7 @@ class CrawlScheduler:
             urls_to_process = []
             for u in discovered_urls:
                 lastmod = u.get("lastmod")
-                if not lastmod or tracker.is_within_days(lastmod, days=2):
+                if not lastmod or tracker.is_within_days(lastmod, days=self.config.days_to_crawl):
                     urls_to_process.append(u)
             
             logger.info(
@@ -174,8 +176,64 @@ class CrawlScheduler:
             )
             
             # Phase 2: Crawl and process recent/new articles
+            saved_count = 0
+            failed_count = 0
+            
             if urls_to_process:
-                await self._process_new_articles(site, urls_to_process)
+                saved_count, failed_count = await self._process_new_articles(site, urls_to_process)
+            
+            # Phase 3: Retry previously discovered URLs that weren't saved as articles
+            # These are URLs that made it to discovered_urls but failed during article processing
+            retry_saved = 0
+            retry_failed = 0
+            
+            unprocessed_urls = self.repo.get_unprocessed_discovered_urls(site.id, limit=50)
+            # Filter to recent dates only
+            retry_urls = []
+            for u in unprocessed_urls:
+                lastmod = u.get("lastmod")
+                if not lastmod or tracker.is_within_days(lastmod, days=self.config.days_to_crawl):
+                    retry_urls.append(u)
+            
+            if retry_urls:
+                logger.info(
+                    f"Retrying {len(retry_urls)} previously failed URLs",
+                    extra={"site": site.name}
+                )
+                retry_saved, retry_failed = await self._process_new_articles(site, retry_urls)
+            
+            # Combine stats
+            total_saved = saved_count + retry_saved
+            total_failed = failed_count + retry_failed
+            
+            # Log final status with details
+            status_msg = "success"
+            error_details = None
+            
+            if total_failed > 0:
+                # If we had failures but also successes, still mark as success but log warning
+                # If ALL failed, maybe mark as warning/failed?
+                # User wants to know why things match.
+                error_details = f"Saved: {total_saved}, Failed: {total_failed}"
+                if total_saved == 0 and (len(urls_to_process) + len(retry_urls)) > 0:
+                    status_msg = "partial_failure" # Or keep success but rely on error_details
+            
+            # Update log with processing stats (upsert or update last log?)
+            # The current log implementation creates a NEW log entry.
+            # We already logged "sitemap" success at line 147. 
+            # We should probably log a separate "article" crawl log OR update the previous one?
+            # The repository `log_crawl` creates a new entry.
+            # Let's log an "article" stage log.
+            
+            self.repo.log_crawl(
+                site_id=site.id,
+                crawl_type="article",
+                status=status_msg,
+                http_code=200,
+                urls_found=len(urls_to_process) + len(retry_urls), # URLs attempted
+                new_urls=total_saved,            # URLs saved
+                error_message=error_details
+            )
             
             # Reset backoff on success
             self.backoff.record_success(site.domain)
@@ -192,8 +250,11 @@ class CrawlScheduler:
                 error_message=str(e)
             )
     
-    async def _process_new_articles(self, site: Site, new_urls: List[Dict[str, Any]]):
-        """Process and store new articles in parallel for speed."""
+    async def _process_new_articles(self, site: Site, new_urls: List[Dict[str, Any]]) -> tuple[int, int]:
+        """
+        Process and store new articles in parallel.
+        Returns (saved_count, failed_count).
+        """
         # Filter valid URLs first
         valid_urls = [
             url_info for url_info in new_urls
@@ -201,7 +262,7 @@ class CrawlScheduler:
         ]
         
         if not valid_urls:
-            return
+            return 0, 0
         
         # Use semaphore to limit concurrent requests (5 at a time)
         semaphore = asyncio.Semaphore(5)
@@ -232,7 +293,9 @@ class CrawlScheduler:
                     extracted = self.extractor.extract(url, content, site.name)
                     
                     # Detect sport category
-                    if site.site_type == "specific" and site.sport_focus:
+                    # Use case-insensitive comparison for site_type (DB might store 'Specific' or 'specific')
+                    site_type_lower = (site.site_type or "").lower()
+                    if site_type_lower == "specific" and site.sport_focus:
                         category = site.sport_focus
                     else:
                         category = self.category_detector.detect(
@@ -272,10 +335,13 @@ class CrawlScheduler:
             
             # Count successes
             success_count = sum(1 for r in results if r is True)
+            failed_count = len(valid_urls) - success_count
+            
             logger.info(
                 f"Processed {success_count}/{len(valid_urls)} articles successfully",
-                extra={"site": site.name}
+                extra={"site": site.name, "failed": failed_count}
             )
+            return success_count, failed_count
 
     
     async def run_once(self, dry_run: bool = False) -> Dict[str, Any]:

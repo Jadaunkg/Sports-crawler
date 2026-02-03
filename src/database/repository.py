@@ -209,6 +209,62 @@ class Repository:
         logger.info(f"Added {total_inserted} new URLs", extra={"site": site_id})
         return total_inserted
     
+    def get_unprocessed_discovered_urls(self, site_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get discovered URLs that haven't been saved as articles yet.
+        These are URLs that exist in discovered_urls but not in articles table.
+        
+        Args:
+            site_id: Site ID to filter by
+            limit: Maximum URLs to return
+            
+        Returns:
+            List of dicts with 'url' and 'lastmod'
+        """
+        try:
+            # Get recent discovered URLs for this site
+            discovered_result = self.db.table("discovered_urls").select(
+                "url, lastmod"
+            ).eq("site_id", site_id).order("first_seen_at", desc=True).limit(limit * 2).execute()
+            
+            if not discovered_result.data:
+                return []
+            
+            discovered_urls = discovered_result.data
+            
+            # Get hashes of all discovered URLs
+            url_hashes = [url_hash(d["url"]) for d in discovered_urls]
+            
+            # Check which ones exist in articles table
+            existing_in_articles = set()
+            batch_size = 100
+            for i in range(0, len(url_hashes), batch_size):
+                batch = url_hashes[i:i + batch_size]
+                articles_result = self.db.table("articles").select("url_hash").in_("url_hash", batch).execute()
+                existing_in_articles.update(row["url_hash"] for row in articles_result.data)
+            
+            # Filter to URLs NOT in articles
+            unprocessed = []
+            for d in discovered_urls:
+                h = url_hash(d["url"])
+                if h not in existing_in_articles:
+                    unprocessed.append({
+                        "url": d["url"],
+                        "lastmod": d.get("lastmod")
+                    })
+                if len(unprocessed) >= limit:
+                    break
+            
+            logger.info(
+                f"Found {len(unprocessed)} unprocessed URLs for site",
+                extra={"site": site_id, "checked": len(discovered_urls)}
+            )
+            return unprocessed
+            
+        except Exception as e:
+            logger.error(f"Error getting unprocessed URLs: {e}")
+            return []
+    
     # ==================== ARTICLES ====================
     
     def get_article_by_url(self, url: str) -> Optional[Article]:

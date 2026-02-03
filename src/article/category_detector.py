@@ -155,8 +155,11 @@ class CategoryDetector:
             Best detected category or None
         """
         # 1. Check site configuration (Specific sites)
-        if site_config and site_config.site_type == "specific" and site_config.sport_focus:
-            return site_config.sport_focus
+        # Use case-insensitive comparison for site_type
+        if site_config:
+            site_type_lower = (getattr(site_config, 'site_type', '') or '').lower()
+            if site_type_lower == "specific" and site_config.sport_focus:
+                return site_config.sport_focus
 
         # 2. Check URL segments (General sites)
         # Split path into segments and check against sports

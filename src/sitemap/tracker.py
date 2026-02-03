@@ -131,7 +131,8 @@ class UrlTracker:
             diff = (today - parsed.date()).days
             return 0 <= diff <= days
         except (ValueError, TypeError):
-            return False
+            # If date parsing fails, assume it's recent to be safe (avoid missing articles)
+            return True
     
     async def find_today_urls(self, site: Site) -> List[Dict[str, Any]]:
         """
