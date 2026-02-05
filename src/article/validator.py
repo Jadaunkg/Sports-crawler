@@ -20,7 +20,7 @@ class ArticleValidator:
     """
     
     # Minimum content length (characters)
-    MIN_CONTENT_LENGTH = 200
+    MIN_CONTENT_LENGTH = 100
     
     # Required elements for valid article
     HEADLINE_SELECTORS = [
@@ -76,10 +76,17 @@ class ArticleValidator:
     
     def has_headline(self, soup: BeautifulSoup) -> bool:
         """Check if page has a headline."""
+        # Try specific selectors first
         for selector in self.HEADLINE_SELECTORS:
             element = soup.select_one(selector)
             if element and element.get_text(strip=True):
                 return True
+        
+        # Fallback to <title> tag if it exists and has content
+        # Most valid pages have a title tag
+        if soup.title and soup.title.get_text(strip=True):
+            return True
+            
         return False
     
     def has_date(self, soup: BeautifulSoup) -> bool:

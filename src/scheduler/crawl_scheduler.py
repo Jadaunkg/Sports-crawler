@@ -287,6 +287,10 @@ class CrawlScheduler:
                     # Validate content
                     is_valid, rejection_reason = self.validator.validate(url, content)
                     if not is_valid:
+                        logger.warning(
+                            f"Article validation failed: {rejection_reason}",
+                            extra={"url": url, "site": site.name}
+                        )
                         return False
                     
                     # Extract article
@@ -389,13 +393,19 @@ class CrawlScheduler:
                                 urls_to_process.append(u)
                         
                         if urls_to_process:
-                             await self._process_new_articles(site, urls_to_process)
-                        # Note: articles_saved would need counting from process
-                    
-                    logger.info(
-                        f"Site processed: {len(new_urls)} new URLs",
-                        extra={"site": site.name, "new_urls": len(new_urls)}
-                    )
+                             start_saved = results["articles_saved"]
+                             saved, failed = await self._process_new_articles(site, urls_to_process)
+                             results["articles_saved"] += saved
+                             
+                             logger.info(
+                                f"Site processed: {len(discovered_urls)} URLs found, {saved} saved",
+                                extra={"site": site.name}
+                             )
+                        else:
+                             logger.info(
+                                f"Site processed: {len(discovered_urls)} URLs found (0 processed)",
+                                extra={"site": site.name}
+                             )
                     
                 except Exception as e:
                     results["errors"].append({
