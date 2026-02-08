@@ -167,11 +167,13 @@ class CrawlScheduler:
             urls_to_process = []
             for u in discovered_urls:
                 lastmod = u.get("lastmod")
-                if not lastmod or tracker.is_within_days(lastmod, days=self.config.days_to_crawl):
+                # CRITICAL CHANGE: Use discovery_days (7 days) instead of strict config limit (2 days)
+                # This ensures we catch up on ANY pending articles found in the discovery window
+                if not lastmod or tracker.is_within_days(lastmod, days=discovery_days):
                     urls_to_process.append(u)
             
             logger.info(
-                f"Queuing {len(urls_to_process)} URLs for processing (last 2 days)",
+                f"Queuing {len(urls_to_process)} URLs for processing (last {discovery_days} days backfill)",
                 extra={"site": site.name, "total_discovered_7d": len(discovered_urls)}
             )
             
