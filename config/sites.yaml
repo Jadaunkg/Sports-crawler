@@ -9,7 +9,7 @@ defaults:
   request_delay_max: 5
   max_retries: 3
   backoff_factor: 2
-  days_to_crawl: 2  # Only fetch articles from last N days
+  days_to_crawl: 7  # Increased to 7 to catch up on missed articles
   
 # URL patterns to reject (not articles)
 reject_patterns:
