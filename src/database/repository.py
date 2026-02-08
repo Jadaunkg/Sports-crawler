@@ -133,7 +133,7 @@ class Repository:
         return len(result.data) > 0
     
     def get_known_urls_batch(self, urls: List[str]) -> set:
-        """Get set of already known URLs from a batch."""
+        """Get set of already known URLs from a batch (checks discovered_urls table)."""
         if not urls:
             return set()
         
@@ -149,6 +149,29 @@ class Repository:
         
         # Return original URLs that are known
         return {u for u in urls if url_hash(u) in known_hashes}
+    
+    def get_urls_with_articles_batch(self, urls: List[str]) -> set:
+        """
+        Get set of URLs that already have articles saved in the articles table.
+        This is the key method for determining which URLs need processing.
+        Unlike get_known_urls_batch (which checks discovered_urls), this checks
+        if the URL has actually been successfully saved as an article.
+        """
+        if not urls:
+            return set()
+        
+        hashes = [url_hash(u) for u in urls]
+        # Query in batches to avoid URL length limits
+        saved_hashes = set()
+        batch_size = 100
+        
+        for i in range(0, len(hashes), batch_size):
+            batch = hashes[i:i + batch_size]
+            result = self.db.table("articles").select("url_hash").in_("url_hash", batch).execute()
+            saved_hashes.update(row["url_hash"] for row in result.data)
+        
+        # Return original URLs that have articles
+        return {u for u in urls if url_hash(u) in saved_hashes}
     
     def add_discovered_url(self, site_id: str, url: str, lastmod: Optional[str] = None) -> DiscoveredUrl:
         """Add a newly discovered URL."""

@@ -90,21 +90,21 @@ class UrlTracker:
         # Get all URLs as list
         all_urls = [e.loc for e in entries]
         
-        # Check which are already known
-        known_urls = self.repo.get_known_urls_batch(all_urls)
+        # Check which URLs already have articles saved (not just discovered)
+        urls_with_articles = self.repo.get_urls_with_articles_batch(all_urls)
         
-        # Filter to new URLs only
+        # Filter to URLs needing articles
         new_entries = []
         for entry in entries:
-            if entry.loc not in known_urls:
+            if entry.loc not in urls_with_articles:
                 new_entries.append({
                     "url": entry.loc,
                     "lastmod": entry.lastmod or entry.news_publication_date,
                 })
         
         logger.info(
-            f"Found {len(new_entries)} new URLs out of {len(all_urls)} total",
-            extra={"site": site.name, "urls_found": len(all_urls), "new_urls": len(new_entries)}
+            f"Found {len(new_entries)} URLs needing articles out of {len(all_urls)} total",
+            extra={"site": site.name, "urls_found": len(all_urls), "urls_needing_articles": len(new_entries)}
         )
         
         return new_entries
@@ -199,21 +199,23 @@ class UrlTracker:
         # Get all URLs as list
         all_urls = [e.loc for e in recent_entries]
         
-        # Check which are already known
-        known_urls = self.repo.get_known_urls_batch(all_urls)
+        # KEY FIX: Check which URLs already have articles saved (NOT discovered_urls)
+        # This ensures URLs that were discovered but failed article processing
+        # will be re-processed on subsequent crawls
+        urls_with_articles = self.repo.get_urls_with_articles_batch(all_urls)
         
-        # Filter to new URLs only
+        # Filter to URLs that don't have articles yet
         new_entries = []
         for entry in recent_entries:
-            if entry.loc not in known_urls:
+            if entry.loc not in urls_with_articles:
                 new_entries.append({
                     "url": entry.loc,
                     "lastmod": entry.lastmod or entry.news_publication_date,
                 })
         
         logger.info(
-            f"Found {len(new_entries)} new URLs from last {days} days",
-            extra={"site": site.name, "urls_found": len(recent_entries), "new_urls": len(new_entries)}
+            f"Found {len(new_entries)} URLs needing articles from last {days} days",
+            extra={"site": site.name, "urls_found": len(recent_entries), "urls_needing_articles": len(new_entries)}
         )
         
         return new_entries
