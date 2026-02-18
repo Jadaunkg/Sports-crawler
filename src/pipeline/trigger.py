@@ -5,10 +5,10 @@ Marks articles as ready and can push to queue/webhook.
 
 import os
 import json
-from typing import Optional
+from typing import Optional, Union
 import httpx
 
-from src.database.repository import Article, get_repository
+from src.database.repository import Article, ArticleLink, get_repository
 from src.logging_config import get_logger
 
 logger = get_logger("pipeline.trigger")
@@ -26,12 +26,12 @@ class TriggerService:
         self.redis_url = os.getenv("REDIS_URL")
         self._redis_client = None
     
-    async def trigger_analysis(self, article: Article) -> bool:
+    async def trigger_analysis(self, article: Union[Article, ArticleLink]) -> bool:
         """
         Trigger analysis for a new article.
         
         Args:
-            article: Article to trigger analysis for
+            article: Article or ArticleLink to trigger analysis for
             
         Returns:
             True if trigger succeeded

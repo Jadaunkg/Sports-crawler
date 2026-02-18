@@ -69,6 +69,25 @@ class CrawlLog:
     created_at: Optional[str] = None
 
 
+@dataclass
+class ArticleLink:
+    """Lightweight article link with metadata."""
+    id: Optional[str] = None
+    site_id: str = ""
+    url: str = ""
+    url_hash: str = ""
+    title: Optional[str] = None
+    author: Optional[str] = None
+    content: Optional[str] = None
+    sport_category: Optional[str] = None
+    last_modified: Optional[str] = None
+    published_at: Optional[str] = None
+    source_site: Optional[str] = None
+    first_seen_at: Optional[str] = None
+
+
+
+
 def url_hash(url: str) -> str:
     """Generate SHA256 hash for URL."""
     return hashlib.sha256(url.encode("utf-8")).hexdigest()
@@ -288,6 +307,67 @@ class Repository:
             logger.error(f"Error getting unprocessed URLs: {e}")
             return []
     
+    # ==================== ARTICLE LINKS (NEW) ====================
+
+    def save_article_link(self, link: ArticleLink) -> ArticleLink:
+        """Save an article link (insert or update metadata)."""
+        now = datetime.now(timezone.utc).isoformat()
+        
+        data = {
+            "site_id": link.site_id,
+            "url": link.url,
+            "url_hash": link.url_hash,
+            "title": link.title,
+            "author": link.author,
+            "content": link.content,
+            "sport_category": link.sport_category,
+            "last_modified": link.last_modified,
+            "published_at": link.published_at,
+            "source_site": link.source_site,
+            # first_seen_at is handled by default in DB or preserved on update
+        }
+
+        
+        # Use upsert to update metadata if we get better info later
+        result = self.db.table("article_links").upsert(
+            data,
+            on_conflict="url_hash"
+        ).execute()
+        
+        if result.data:
+            return ArticleLink(**result.data[0])
+        raise RuntimeError(f"Failed to save article link: {link.url}")
+
+    def get_article_links_by_urls(self, urls: List[str]) -> set:
+        """
+        Get set of known URLs from a batch check against article_links table.
+        This effectively checks if we've seen this URL before in our new system.
+        """
+        if not urls:
+            return set()
+        
+        hashes = [url_hash(u) for u in urls]
+        known_hashes = set()
+        batch_size = 100
+        
+        for i in range(0, len(hashes), batch_size):
+            batch = hashes[i:i + batch_size]
+            result = self.db.table("article_links").select("url_hash").in_("url_hash", batch).execute()
+            known_hashes.update(row["url_hash"] for row in result.data)
+        
+        return {u for u in urls if url_hash(u) in known_hashes}
+
+    def get_filtered_article_links(self, site_id: str, days: int = 7) -> List[ArticleLink]:
+        """Get article links from last N days for a site."""
+        from datetime import timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        
+        result = self.db.table("article_links").select("*").eq(
+            "site_id", site_id
+        ).gte("published_at", cutoff).order("published_at", desc=True).limit(1000).execute()
+        
+        return [ArticleLink(**row) for row in result.data]
+
     # ==================== ARTICLES ====================
     
     def get_article_by_url(self, url: str) -> Optional[Article]:

@@ -126,123 +126,81 @@ class CrawlScheduler:
     async def _crawl_site(self, site: Site):
         """
         Main crawl job for a site.
-        1. Fetch sitemap and find new URLs
-        2. Crawl each new URL
-        3. Extract and store articles
+        1. Fetch sitemap and find new URLs (last 7 days)
+        2. Deduplicate against article_links table
+        3. Crawl content for new URLs
+        4. Save to article_links (with content/metadata)
         """
         logger.info(f"Starting crawl cycle", extra={"site": site.name})
         
-        # Check if site is blocked
         if self.backoff.is_blocked(site.domain):
             logger.warning(f"Site blocked, skipping", extra={"site": site.name})
             return
         
         try:
-            # Phase 1: Find URLs from last N days from sitemap
-            # Use configured days_to_crawl + a buffer (e.g. 5 days) for discovery to ensure we don't miss anything
-            # The stricter filtering happens before processing
-            discovery_days = self.config.days_to_crawl + 5
+            # Phase 1: Sitemap Discovery (Last 7 Days)
+            # ----------------------------------------
             tracker = UrlTracker(self._session)
-            discovered_urls = await tracker.find_recent_urls(site, days=discovery_days)
             
-            # Log sitemap check
+            # Fetch URLs strictly from last 7 days
+            days_filter = 7
+            sitemap_urls = await tracker.find_recent_urls(site, days=days_filter)
+            
             self.repo.log_crawl(
                 site_id=site.id,
                 crawl_type="sitemap",
                 status="success",
                 http_code=200,
-                urls_found=len(discovered_urls) + len(tracker.repo.get_known_urls_batch([u["url"] for u in discovered_urls])),
-                new_urls=len(discovered_urls)
+                urls_found=len(sitemap_urls),
+                new_urls=0 
             )
             
-            if not discovered_urls:
-                logger.info(f"No new URLs found in last 7 days", extra={"site": site.name})
+            if not sitemap_urls:
+                logger.info(f"No recent URLs found (last {days_filter} days)", extra={"site": site.name})
                 return
+
+            # Phase 2: Deduplication against article_links
+            # --------------------------------------------
+            # Extract just the URL strings to check
+            found_urls = [u["url"] for u in sitemap_urls]
             
-            # Record discovered URLs in database
-            tracker.record_new_urls(site, discovered_urls)
+            # Check which are already in article_links
+            known_urls = self.repo.get_article_links_by_urls(found_urls)
             
-            # Filter for processing: "save all the articles of last 2 days"
-            # We also include URLs with no date to be safe
-            urls_to_process = []
-            for u in discovered_urls:
-                lastmod = u.get("lastmod")
-                if not lastmod or tracker.is_within_days(lastmod, days=self.config.days_to_crawl):
-                    urls_to_process.append(u)
+            # Filter to truly new URLs
+            new_items = []
+            for item in sitemap_urls:
+                if item["url"] not in known_urls:
+                     new_items.append(item)
             
             logger.info(
-                f"Queuing {len(urls_to_process)} URLs for processing (last 2 days)",
-                extra={"site": site.name, "total_discovered_7d": len(discovered_urls)}
+                f"Found {len(new_items)} new links to process out of {len(sitemap_urls)} recent items",
+                extra={"site": site.name}
             )
             
-            # Phase 2: Crawl and process recent/new articles
-            saved_count = 0
-            failed_count = 0
-            
-            if urls_to_process:
-                saved_count, failed_count = await self._process_new_articles(site, urls_to_process)
-            
-            # Phase 3: Retry previously discovered URLs that weren't saved as articles
-            # These are URLs that made it to discovered_urls but failed during article processing
-            retry_saved = 0
-            retry_failed = 0
-            
-            unprocessed_urls = self.repo.get_unprocessed_discovered_urls(site.id, limit=50)
-            # Filter to recent dates only
-            retry_urls = []
-            for u in unprocessed_urls:
-                lastmod = u.get("lastmod")
-                if not lastmod or tracker.is_within_days(lastmod, days=self.config.days_to_crawl):
-                    retry_urls.append(u)
-            
-            if retry_urls:
-                logger.info(
-                    f"Retrying {len(retry_urls)} previously failed URLs",
-                    extra={"site": site.name}
-                )
-                retry_saved, retry_failed = await self._process_new_articles(site, retry_urls)
-            
-            # Combine stats
-            total_saved = saved_count + retry_saved
-            total_failed = failed_count + retry_failed
-            
-            # Log final status with details
-            status_msg = "success"
-            error_details = None
-            
-            if total_failed > 0:
-                # If we had failures but also successes, still mark as success but log warning
-                # If ALL failed, maybe mark as warning/failed?
-                # User wants to know why things match.
-                error_details = f"Saved: {total_saved}, Failed: {total_failed}"
-                if total_saved == 0 and (len(urls_to_process) + len(retry_urls)) > 0:
-                    status_msg = "partial_failure" # Or keep success but rely on error_details
-            
-            # Update log with processing stats (upsert or update last log?)
-            # The current log implementation creates a NEW log entry.
-            # We already logged "sitemap" success at line 147. 
-            # We should probably log a separate "article" crawl log OR update the previous one?
-            # The repository `log_crawl` creates a new entry.
-            # Let's log an "article" stage log.
+            if not new_items:
+                return
+
+            # Phase 3: Crawl & Save (Direct to article_links)
+            # -----------------------------------------------
+            saved_count, failed_count = await self._process_new_articles(site, new_items)
             
             self.repo.log_crawl(
                 site_id=site.id,
                 crawl_type="article",
-                status=status_msg,
+                status="success" if failed_count == 0 else "partial_failure",
                 http_code=200,
-                urls_found=len(urls_to_process) + len(retry_urls), # URLs attempted
-                new_urls=total_saved,            # URLs saved
-                error_message=error_details
+                urls_found=len(new_items),
+                new_urls=saved_count,
+                error_message=f"Saved: {saved_count}, Failed: {failed_count}"
             )
-            
-            # Reset backoff on success
+
+            # Reset backoff
             self.backoff.record_success(site.domain)
-            
+
         except Exception as e:
             logger.error(f"Crawl cycle failed: {e}", extra={"site": site.name})
-            
-            should_retry, wait_time = self.backoff.record_failure(site.domain)
-            
+            self.backoff.record_failure(site.domain)
             self.repo.log_crawl(
                 site_id=site.id,
                 crawl_type="sitemap",
@@ -252,7 +210,7 @@ class CrawlScheduler:
     
     async def _process_new_articles(self, site: Site, new_urls: List[Dict[str, Any]]) -> tuple[int, int]:
         """
-        Process and store new articles in parallel.
+        Process, crawl, and store new articles in article_links table.
         Returns (saved_count, failed_count).
         """
         # Filter valid URLs first
@@ -267,17 +225,19 @@ class CrawlScheduler:
         # Use semaphore to limit concurrent requests (5 at a time)
         semaphore = asyncio.Semaphore(5)
         
+        # Import ArticleLink locally to avoid circular dependency issues if any
+        from src.database.repository import ArticleLink, url_hash
+        
         async def process_single_article(url_info: Dict[str, Any], client: HttpClient) -> bool:
             """Process a single article. Returns True if saved successfully."""
             async with semaphore:
                 url = url_info["url"]
                 
-                # Check backoff
                 if self.backoff.is_blocked(site.domain):
                     return False
                 
                 try:
-                    # Fetch article
+                    # Fetch article content
                     content, http_code, error = await client.get(url)
                     
                     if error or not content:
@@ -293,35 +253,38 @@ class CrawlScheduler:
                         )
                         return False
                     
-                    # Extract article
+                    # Extract article details (metadata + content)
                     extracted = self.extractor.extract(url, content, site.name)
                     
                     # Detect sport category
-                    # Use case-insensitive comparison for site_type (DB might store 'Specific' or 'specific')
                     site_type_lower = (site.site_type or "").lower()
                     if site_type_lower == "specific" and site.sport_focus:
                         category = site.sport_focus
                     else:
                         category = self.category_detector.detect(
-                            url, extracted.title, extracted.content, None
+                            url, extracted.title, extracted.content, site
                         )
-                    extracted.sport_category = category
                     
-                    # Save to database
-                    article = Article(
+                    # Create ArticleLink object with full content
+                    link = ArticleLink(
+                        site_id=site.id,
                         url=extracted.url,
+                        url_hash=url_hash(extracted.url),
                         title=extracted.title,
                         author=extracted.author,
-                        publish_date=extracted.publish_date,
-                        content=extracted.content,
-                        sport_category=extracted.sport_category,
+                        content=extracted.content, # Saving full content
+                        sport_category=category,
+                        last_modified=url_info.get("lastmod"),
+                        published_at=extracted.publish_date or url_info.get("news_publication_date") or url_info.get("lastmod"),
                         source_site=extracted.source_site,
-                        ready_for_analysis=True
+                        # first_seen_at handled by DB
                     )
                     
-                    saved = self.repo.save_article(article)
+                    # Save to article_links
+                    saved = self.repo.save_article_link(link)
                     
                     # Trigger analysis pipeline
+                    # TriggerService likely expects 'id' and other fields which ArticleLink now has
                     await self.trigger_service.trigger_analysis(saved)
                     
                     self.backoff.record_success(site.domain)

@@ -157,27 +157,37 @@ class CategoryDetector:
         # 1. Check site configuration (Specific sites)
         # Use case-insensitive comparison for site_type
         if site_config:
-            site_type_lower = (getattr(site_config, 'site_type', '') or '').lower()
-            if site_type_lower == "specific" and site_config.sport_focus:
-                return site_config.sport_focus
+            # Check for site_type or site.site_type if passed as object
+            site_type = getattr(site_config, 'site_type', '') or ''
+            sport_focus = getattr(site_config, 'sport_focus', '') or ''
+            
+            if site_type.lower() == "specific" and sport_focus:
+                logger.debug(f"Category forced by site focus: {sport_focus}", extra={"site": getattr(site_config, 'name', 'unknown')})
+                return sport_focus
 
         # 2. Check URL segments (General sites)
-        # Split path into segments and check against sports
+        # Main logic requested: "website/sports_category/article_url" -> sports_category
         parsed = urlparse(url)
         path = parsed.path.lower()
-        segments = [s for s in path.split('/') if s]
         
-        # Check if any path segment matches a category directly
+        # Clean path and split
+        segments = [s for s in path.strip('/').split('/') if s]
+        
+        # Common pattern: /category/article-slug -> segment 0 is category
+        # Or /sport/category/article-slug -> segment 1 might be category if segment 0 is generic
+        
         for segment in segments:
-            # Direct match with category name
-            if segment in self.CATEGORY_KEYWORDS:
-                logger.debug(f"Category detected from URL segment: {segment}", extra={"url": url})
+            # 1. Direct match with configured categories from sites.yaml
+            if hasattr(self, 'custom_categories') and segment in self.custom_categories:
                 return segment
-                
-            # Check against keywords for each category
+
+            # 2. Direct match with internal known categories keys
+            if segment in self.CATEGORY_KEYWORDS:
+                return segment
+            
+            # 3. Check if segment matches a keyword that maps to a category
             for category, keywords in self.CATEGORY_KEYWORDS.items():
                 if segment in keywords:
-                    logger.debug(f"Category detected from URL segment keyword '{segment}' -> '{category}'", extra={"url": url})
                     return category
 
         # 3. Existing URL pattern matching (fallback for URLs)
