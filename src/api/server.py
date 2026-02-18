@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 
 from src.config import get_config, reload_config
-from src.database.repository import get_repository, Site, Article
+from src.database.repository import get_repository, Site, Article, ArticleLink, url_hash
 from src.sitemap.tracker import UrlTracker
 from src.crawler.http_client import HttpClient
 from src.crawler.backoff import BackoffManager
@@ -309,36 +309,35 @@ async def get_articles(
     """Get articles with optional filtering."""
     repo = get_repository()
     
-    query = repo.db.table("articles").select("*").order("crawl_time", desc=True)
-    
-    if source:
-        query = query.eq("source_site", source)
-    if category:
-        query = query.eq("sport_category", category)
-    
-    result = query.range(offset, offset + limit - 1).execute()
+    links = repo.get_article_links(
+        limit=limit,
+        offset=offset,
+        source=source,
+        category=category
+    )
     
     return [
         ArticleResponse(
-            id=str(a["id"]),
-            url=a["url"],
-            title=a["title"],
-            author=a.get("author"),
-            publish_date=a.get("publish_date"),
-            sport_category=a.get("sport_category"),
-            source_site=a["source_site"],
-            crawl_time=a.get("crawl_time")
+            id=str(link.id) if link.id else "",
+            url=link.url,
+            title=link.title or "No Title",
+            author=link.author,
+            publish_date=link.published_at,
+            sport_category=link.sport_category,
+            source_site=link.source_site or "Unknown",
+            crawl_time=link.first_seen_at # Using first_seen_at as proxy for crawl_time
         )
-        for a in result.data
+        for link in links
     ]
+
 
 
 @app.get("/api/articles/count")
 async def get_article_count():
     """Get total article count."""
     repo = get_repository()
-    result = repo.db.table("articles").select("id", count="exact").execute()
-    return {"count": result.count}
+    count = repo.get_article_links_count()
+    return {"count": count}
 
 
 # ==================== CRAWL ENDPOINTS ====================
@@ -551,18 +550,23 @@ async def process_single_article(
         extracted.sport_category = category
         
         # Save to database
-        article = Article(
+        extracted.sport_category = category
+        
+        # Save to database (ArticleLink)
+        link = ArticleLink(
+            site_id=site.id,
             url=extracted.url,
+            url_hash=url_hash(extracted.url),
             title=extracted.title,
             author=extracted.author,
-            publish_date=extracted.publish_date,
             content=extracted.content,
             sport_category=extracted.sport_category,
+            last_modified=url_info.get("lastmod"),
+            published_at=extracted.publish_date or url_info.get("news_publication_date") or url_info.get("lastmod"),
             source_site=extracted.source_site,
-            ready_for_analysis=True
         )
         
-        repo.save_article(article)
+        repo.save_article_link(link)
         backoff.record_success(site.domain)
         
         return True

@@ -24,6 +24,7 @@ class Site:
     is_active: bool = True
     site_type: str = "general"  # 'specific' or 'general'
     sport_focus: Optional[str] = None  # only for specific sites
+    last_crawl_at: Optional[str] = None
     created_at: Optional[str] = None
 
 
@@ -169,7 +170,17 @@ class Repository:
         # Return original URLs that are known
         return {u for u in urls if url_hash(u) in known_hashes}
     
-    def get_urls_with_articles_batch(self, urls: List[str]) -> set:
+    def update_last_crawl_time(self, site_id: str) -> bool:
+        """Update the last_crawl_at timestamp for a site."""
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            result = self.db.table("sites").update({"last_crawl_at": now}).eq("id", site_id).execute()
+            return len(result.data) > 0
+        except Exception as e:
+            logger.error(f"Failed to update last_crawl_at for site {site_id}: {e}")
+            return False
+
+    def get_urls_with_articles_batch(self, urls: List[str]) -> List[str]:
         """
         Get set of URLs that already have articles saved in the articles table.
         This is the key method for determining which URLs need processing.
@@ -417,10 +428,11 @@ class Repository:
         ).eq("url_hash", url_hash).execute()
         return len(result.data) > 0
     
+    
     def cleanup_old_articles(self, days: int = 2) -> int:
         """
-        Delete articles older than N days.
-        Uses publish_date or crawl_time.
+        Delete article links older than N days.
+        Uses published_at or first_seen_at.
         """
         from datetime import timedelta
         
@@ -428,20 +440,33 @@ class Repository:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         
         try:
-            # Delete where publish_date < cutoff
-            # Note: We prioritize publish_date, but could fall back to crawl_time (created_at)
-            # Safe approach: Delete if publish_date < cutoff OR (publish_date is NULL AND created_at < cutoff)
-            # Simpler for now: Delete based on crawl_time which is always present and reliable for "when we got it"
-            # User wants "last 2 days article in articles table", implying retention based on freshness to US.
-            
-            result = self.db.table("articles").delete().lt("crawl_time", cutoff).execute()
-            count = len(result.data) if result.data else 0
-            
-            logger.info(f"Cleaned up {count} articles older than {days} days")
+            # Delete from article_links
+            result = self.db.table("article_links").delete().lt("first_seen_at", cutoff).execute()
+            count = len(result.data)
+            logger.info(f"Cleaned up {count} old article links")
             return count
         except Exception as e:
             logger.error(f"Cleanup failed: {e}")
             return 0
+
+    def get_article_links(self, limit: int = 50, offset: int = 0, source: Optional[str] = None, category: Optional[str] = None) -> List[ArticleLink]:
+        """Get list of article links with optional filtering."""
+        query = self.db.table("article_links").select("*").order("published_at", desc=True)
+        
+        if source:
+            query = query.eq("source_site", source)
+        if category:
+            query = query.eq("sport_category", category)
+        
+        result = query.range(offset, offset + limit - 1).execute()
+        return [ArticleLink(**row) for row in result.data]
+
+    def get_article_links_count(self) -> int:
+        """Get total count of article links."""
+        result = self.db.table("article_links").select("id", count="exact").execute()
+        return result.count
+
+
     
     # ==================== CRAWL LOGS ====================
     

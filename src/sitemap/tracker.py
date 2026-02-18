@@ -4,7 +4,7 @@ Compares sitemap URLs against database records.
 """
 
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 import aiohttp
 from dateutil.parser import parse as parse_date
 
@@ -146,13 +146,14 @@ class UrlTracker:
         """
         return await self.find_recent_urls(site, days=0)  # 0 = today only
     
-    async def find_recent_urls(self, site: Site, days: int = 3) -> List[Dict[str, Any]]:
+    async def find_recent_urls(self, site: Site, days: int = 7, since: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """
-        Find URLs from sitemap that are within last N days and not in database.
+        Find URLs from sitemap that are recent (since last crawl or within last N days).
         
         Args:
             site: Site configuration
-            days: Number of days to look back (0 = today only, 3 = last 3 days)
+            days: Fallback max days lookback (default 7)
+            since: Timestamp of last successful crawl
             
         Returns:
             List of dicts with 'url' and 'lastmod' for recent new URLs
@@ -164,16 +165,55 @@ class UrlTracker:
             logger.warning(f"No URLs found in sitemap", extra={"site": site.name})
             return []
         
-        # Filter to recent entries only using lastmod or news_publication_date
-        # IMPORTANT: Include URLs without dates (assume they're recent - common for new sitemaps)
+        # Determine cutoff time
+        # Use 'since' if available, but ensure we don't go back further than 'days' (sanity check)
+        now = datetime.now(timezone.utc)
+        days_ago = now - timedelta(days=days)
+        
+        cutoff = days_ago
+        if since:
+             # Ensure 'since' is offset-aware
+             if since.tzinfo is None:
+                 since = since.replace(tzinfo=timezone.utc)
+             
+             # Use the more recent of (since, days_ago)
+             # This prevents re-crawling excessively old content if 'since' is very old
+             # But also respects 'since' if it was just 10 mins ago
+             if since > days_ago:
+                 cutoff = since
+        
+        logger.info(f"Filtering URLs since {cutoff}", extra={"site": site.name})
+
+        # Filter to recent entries only
         recent_entries = []
         no_date_entries = []
         
         for entry in entries:
             date_str = entry.lastmod or entry.news_publication_date
+            
             if date_str:
-                if self.is_within_days(date_str, days):
-                    recent_entries.append(entry)
+                # Parse date
+                try:
+                    dt = parse_date(date_str)
+                    # Ensure dt is offset-aware for comparison
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    
+                    if dt > cutoff:
+                        recent_entries.append(entry)
+                except Exception as e:
+                    # Only fallback if parsing failed, not if comparison failed
+                    # Check if 'dt' was defined in this scope to distinguish
+                    # Actually, just use is_within_days only if parsing really failed
+                    # Only fallback if parsing failed, not if comparison failed
+                    # Check if 'dt' was defined in this scope to distinguish
+                    # Actually, just use is_within_days only if parsing really failed
+                    if self.is_within_days(date_str, days):
+                         # If we have 'since', we strictly want newer than that.
+                         # But is_within_days checks 'days'.
+                         # If we failed to parse for precise check, fallback to days is acceptable risk
+                         # or we accept it might be duplicate.
+                         recent_entries.append(entry)
             else:
                 # No date info - collect separately
                 no_date_entries.append(entry)
@@ -199,10 +239,10 @@ class UrlTracker:
         # Get all URLs as list
         all_urls = [e.loc for e in recent_entries]
         
-        # KEY FIX: Check which URLs already have articles saved (NOT discovered_urls)
+        # KEY FIX: Check which URLs already have articles saved in article_links
         # This ensures URLs that were discovered but failed article processing
         # will be re-processed on subsequent crawls
-        urls_with_articles = self.repo.get_urls_with_articles_batch(all_urls)
+        urls_with_articles = self.repo.get_article_links_by_urls(all_urls)
         
         # Filter to URLs that don't have articles yet
         new_entries = []
@@ -214,7 +254,7 @@ class UrlTracker:
                 })
         
         logger.info(
-            f"Found {len(new_entries)} URLs needing articles from last {days} days",
+            f"Found {len(new_entries)} URLs needing articles since {cutoff}",
             extra={"site": site.name, "urls_found": len(recent_entries), "urls_needing_articles": len(new_entries)}
         )
         
@@ -234,4 +274,6 @@ class UrlTracker:
         if not new_urls:
             return 0
         
-        return self.repo.add_discovered_urls_batch(site.id, new_urls)
+        # DEPRECATED: We no longer store discovered_urls separately.
+        # They are stored directly as article_links when crawled.
+        return len(new_urls)

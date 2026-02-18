@@ -54,10 +54,16 @@ class CrawlScheduler:
             timeout=aiohttp.ClientTimeout(total=60)
         )
         
-        # Get active sites from database
-        sites = self.repo.get_active_sites()
-        for site in sites:
-            self._schedule_site(site)
+        # Schedule Global Crawl Cycle (Every 10 minutes)
+        self.scheduler.add_job(
+            self.run_global_crawl_cycle,
+            IntervalTrigger(minutes=10),
+            id="global_crawl_cycle",
+            max_instances=1,
+            coalesce=True,
+            next_run_time=datetime.now(timezone.utc) # Run immediately on start
+        )
+        logger.info("Scheduled global crawl cycle every 10 minutes")
         
         # Schedule daily cleanup
         self.scheduler.add_job(
@@ -65,7 +71,7 @@ class CrawlScheduler:
             IntervalTrigger(hours=24),
             id="daily_cleanup",
             max_instances=1,
-            next_run_time=datetime.now(timezone.utc) # Run on start to ensure cleanliness
+            next_run_time=datetime.now(timezone.utc) 
         )
         logger.info("Scheduled daily cleanup job")
 
@@ -73,7 +79,31 @@ class CrawlScheduler:
         self.scheduler.start()
         self._running = True
         
-        logger.info(f"Scheduler started with {len(sites)} sites")
+        logger.info("Scheduler started")
+
+    async def run_global_crawl_cycle(self):
+        """
+        Global crawl cycle.
+        Iterates over all active sites and runs the crawl logic.
+        """
+        logger.info("Starting global crawl cycle")
+        
+        # Get active sites
+        sites = self.repo.get_active_sites()
+        
+        if not sites:
+            logger.warning("No active sites found for crawl cycle")
+            return
+            
+        logger.info(f"Found {len(sites)} active sites to crawl")
+        
+        for site in sites:
+            try:
+                await self._crawl_site(site)
+            except Exception as e:
+                logger.error(f"Error crawling site {site.name}: {e}")
+        
+        logger.info("Global crawl cycle completed")
 
     async def _cleanup_job(self):
         """Run daily cleanup of old articles."""
@@ -97,31 +127,7 @@ class CrawlScheduler:
         
         self._running = False
         logger.info("Scheduler stopped")
-    
 
-    def _schedule_site(self, site: Site):
-        """Schedule crawl job for a site."""
-        job_id = f"crawl_{site.domain}"
-        
-        # Remove existing job if any
-        if self.scheduler.get_job(job_id):
-            self.scheduler.remove_job(job_id)
-        
-        # Schedule new job
-        self.scheduler.add_job(
-            self._crawl_site,
-            IntervalTrigger(minutes=site.crawl_interval_minutes),
-            id=job_id,
-            args=[site],
-            max_instances=1,
-            coalesce=True,
-            next_run_time=datetime.now(timezone.utc)  # Run immediately on start
-        )
-        
-        logger.info(
-            f"Scheduled site crawl every {site.crawl_interval_minutes} minutes",
-            extra={"site": site.name}
-        )
     
     async def _crawl_site(self, site: Site):
         """
@@ -142,9 +148,18 @@ class CrawlScheduler:
             # ----------------------------------------
             tracker = UrlTracker(self._session)
             
-            # Fetch URLs strictly from last 7 days
+            # Fetch URLs strictly from last 7 days (or since last crawl)
             days_filter = 7
-            sitemap_urls = await tracker.find_recent_urls(site, days=days_filter)
+            
+            # Parse last_crawl_at if available
+            last_crawl = None
+            if site.last_crawl_at:
+                try:
+                    last_crawl = datetime.fromisoformat(site.last_crawl_at.replace('Z', '+00:00'))
+                except ValueError:
+                    pass
+            
+            sitemap_urls = await tracker.find_recent_urls(site, days=days_filter, since=last_crawl)
             
             self.repo.log_crawl(
                 site_id=site.id,
@@ -195,8 +210,9 @@ class CrawlScheduler:
                 error_message=f"Saved: {saved_count}, Failed: {failed_count}"
             )
 
-            # Reset backoff
+            # Reset backoff and update last run time
             self.backoff.record_success(site.domain)
+            self.repo.update_last_crawl_time(site.id)
 
         except Exception as e:
             logger.error(f"Crawl cycle failed: {e}", extra={"site": site.name})
